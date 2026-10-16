@@ -49,7 +49,7 @@ A API ficará disponível em `http://localhost:3333`. Teste `GET /health`.
 
 Para rotas protegidas, envie `Authorization: Bearer <token>`.
 
-Documentação detalhada: [API](apps/api/README.md) · [Autenticação](docs/authentication.md) · [Arquitetura](docs/architecture.md).
+Documentação detalhada: [API atual](apps/api/README.md) · [Autenticação](docs/authentication.md) · [Arquitetura](docs/architecture.md) · [Contrato OpenAPI](docs/openapi.yaml) · [Eventos WebSocket](docs/websocket-events.md) · [Estados da corrida](docs/trip-state-machine.md) · [Exemplos REST](docs/api-examples.md).
 
 ## Aplicativos móveis
 
