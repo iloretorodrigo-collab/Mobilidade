@@ -8,7 +8,7 @@ export interface RouteEstimate {
   origin: { latitude: number; longitude: number; label: string };
   destination: { latitude: number; longitude: number; label: string };
   distanceKm: number;
-  durationMinutes: number;
+  durationMinutes: number;\n  routeCoordinates: [number, number][];
   estimatedFareCents: number;
   estimatedFare: number;
   currency: "BRL";
