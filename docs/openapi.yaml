@@ -136,7 +136,7 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-  /v1/places/autocomplete:
+  /api/v1/places/autocomplete:
     get:
       tags: [Places]
       operationId: autocompletePlaces
@@ -168,7 +168,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '502':
           description: Provedor de mapas indisponível
-  /v1/routes/estimate:
+  /api/v1/routes/estimate:
     post:
       tags: [Places]
       operationId: estimateRoute
@@ -189,7 +189,7 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '502':
           description: Provedor de mapas indisponível
-  /v1/quotes:
+  /api/v1/quotes:
     post:
       tags: [Pricing]
       operationId: createQuote
@@ -212,7 +212,7 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '502':
           description: Não foi possível calcular a rota
-  /v1/trips:
+  /api/v1/trips:
     post:
       tags: [Trips]
       operationId: requestTrip
@@ -237,7 +237,7 @@ paths:
           description: Conflito de idempotência ou de estado
         '422':
           $ref: '#/components/responses/ValidationError'
-  /v1/trips/{tripId}:
+  /api/v1/trips/{tripId}:
     get:
       tags: [Trips]
       operationId: getTrip
@@ -256,7 +256,7 @@ paths:
           description: Sem permissão para consultar esta corrida
         '404':
           description: Corrida não encontrada
-  /v1/trips/{tripId}/cancel:
+  /api/v1/trips/{tripId}/cancel:
     post:
       tags: [Trips]
       operationId: cancelTrip
@@ -281,7 +281,7 @@ paths:
           description: Corrida não pode ser cancelada neste estado
         '422':
           $ref: '#/components/responses/ValidationError'
-  /v1/drivers/me/availability:
+  /api/v1/drivers/me/availability:
     put:
       tags: [Drivers]
       operationId: setDriverAvailability
@@ -300,7 +300,7 @@ paths:
           description: Disponibilidade atualizada
         '403':
           description: Motorista não aprovado
-  /v1/trips/{tripId}/accept:
+  /api/v1/trips/{tripId}/accept:
     post:
       tags: [Drivers]
       operationId: acceptTrip
@@ -325,7 +325,7 @@ paths:
           description: Oferta expirada ou corrida já atribuída
         '403':
           description: Motorista não autorizado
-  /v1/trips/{tripId}/start:
+  /api/v1/trips/{tripId}/start:
     post:
       tags: [Drivers]
       operationId: startTrip
@@ -338,7 +338,7 @@ paths:
           description: Corrida iniciada
         '409':
           description: Transição de estado inválida
-  /v1/trips/{tripId}/complete:
+  /api/v1/trips/{tripId}/complete:
     post:
       tags: [Drivers]
       operationId: completeTrip
@@ -351,7 +351,7 @@ paths:
           description: Corrida finalizada
         '409':
           description: Transição de estado inválida
-  /v1/payments/webhooks/mercado-pago:
+  /api/v1/payments/webhooks/mercado-pago:
     post:
       tags: [Payments]
       operationId: mercadoPagoWebhook
