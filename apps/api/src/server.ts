@@ -395,6 +395,12 @@ app.post("/api/v1/trips", { preHandler: requireAuth }, async (request, reply) =>
     return reply.code(201).send({ data: { tripId: ride.id, status: "requested", estimatedFareCents: ride.estimatedFareCents, currency: "BRL", createdAt: ride.requestedAt.toISOString() } });
   } catch (error) {
     if (error instanceof Error && ["QUOTE_NOT_FOUND", "QUOTE_EXPIRED", "QUOTE_ALREADY_USED"].includes(error.message)) {
+      if (error.message === "QUOTE_ALREADY_USED") {
+        const retry = await prisma.ride.findUnique({ where: { idempotencyKey } });
+        if (retry && retry.passengerId === request.user.sub && retry.quoteId === parsed.data.quoteId) {
+          return reply.code(200).send({ data: { tripId: retry.id, status: apiRideStatus(retry.status), estimatedFareCents: retry.estimatedFareCents, currency: "BRL", createdAt: retry.requestedAt.toISOString() } });
+        }
+      }
       return reply.code(error.message === "QUOTE_NOT_FOUND" ? 404 : 409).send({ error: error.message, message: "Não foi possível usar esta cotação." });
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
