@@ -128,8 +128,7 @@ export default function App() {
           <View style={s.topline}><Brand/><View style={s.pill}><View style={s.pillDot}/><Text style={s.pillText}>PASSAGEIRO</Text></View></View>
           <View style={s.hero}>
             <View style={s.heroBadge}><Text style={s.heroBadgeText}>●  SUA CIDADE, NO SEU RITMO</Text></View>
-            <Text style={s.heroTitle}>Chegue lá.{ "
-" }Do seu jeito.</Text>
+            <Text style={s.heroTitle}>Chegue lá.{"\n"}Do seu jeito.</Text>
             <Text style={s.heroCopy}>Mobilidade simples, confortável e feita para a sua rotina.</Text>
             <View style={s.routeArt}>
               <View style={s.routeLine}/><View style={[s.routePoint,{top:20,left:28}]}/><View style={[s.routePoint,{bottom:20,right:30,backgroundColor:C.lime,borderColor:C.ink}]}/>
