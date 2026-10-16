@@ -1,0 +1,14 @@
+{
+  "name": "mobilidade",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Starter monorepo for an urban mobility platform",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:api": "npm run dev --workspace @mobilidade/api",
+    "build:api": "npm run build --workspace @mobilidade/api",
+    "typecheck": "npm run typecheck --workspace @mobilidade/api",
+    "db:generate": "npm run db:generate --workspace @mobilidade/database"
+  },
+  "engines": { "node": ">=20" }
+}
