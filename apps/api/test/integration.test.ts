@@ -45,6 +45,12 @@ test("auth lifecycle, contact verification, password reset and driver approval",
   const verified = await api("/auth/verification/confirm", "POST", { channel: "email", code: verifyRequest.data.developmentCode }, passengerToken);
   assert.equal(verified.status, 200);
 
+  const phoneRequest = await api("/auth/verification/phone", "POST", {}, passengerToken);
+  assert.equal(phoneRequest.status, 200, JSON.stringify(phoneRequest.data));
+  assert.ok(phoneRequest.data.developmentCode);
+  const phoneVerified = await api("/auth/verification/confirm", "POST", { channel: "phone", code: phoneRequest.data.developmentCode }, passengerToken);
+  assert.equal(phoneVerified.status, 200);
+
   const forgot = await api("/auth/password/forgot", "POST", { email: passengerEmail });
   assert.equal(forgot.status, 200);
   assert.ok(forgot.data.developmentCode);
