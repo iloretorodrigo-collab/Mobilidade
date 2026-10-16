@@ -62,6 +62,7 @@ export default function App() {
       const result = mode === "register"
         ? await authApi.register({ name: name.trim(), email: email.trim().toLowerCase(), phone: phone.trim() || undefined, password, role: "passenger" })
         : await authApi.login({ email: email.trim().toLowerCase(), password });
+      if (result.user.role !== "passenger") throw new Error("Esta conta não é de passageiro. Use o aplicativo correspondente.");
       await SecureStore.setItemAsync(TOKEN_KEY, result.token);
       setToken(result.token); setUser(result.user); setPassword("");
     } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível entrar."); }
