@@ -51,6 +51,13 @@ Para rotas protegidas, envie `Authorization: Bearer <token>`.
 
 Documentação detalhada: [API](apps/api/README.md) · [Autenticação](docs/authentication.md) · [Arquitetura](docs/architecture.md).
 
+## Aplicativos móveis
+
+- Passageiro: `npm run dev:passenger`
+- Motorista: `npm run dev:driver`
+
+Configure `EXPO_PUBLIC_API_URL` para o endereço da API acessível pelo dispositivo. No emulador Android use `http://10.0.2.2:3333`; em aparelho físico use o IP local do computador na rede Wi-Fi. Veja os detalhes em [app do passageiro](apps/passenger/README.md) e [app do motorista](apps/driver/README.md).
+
 ## Próximas etapas
 
 - Verificação de e-mail e telefone, recuperação de senha e refresh tokens.
