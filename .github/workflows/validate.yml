@@ -1,0 +1,54 @@
+name: Validate Mobilidade
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mobilidade
+          POSTGRES_PASSWORD: mobilidade
+          POSTGRES_DB: mobilidade
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mobilidade -d mobilidade"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://mobilidade:mobilidade@localhost:5432/mobilidade?schema=public
+      JWT_SECRET: ci-only-secret-that-is-at-least-thirty-two-characters
+      NODE_ENV: development
+      ADMIN_EMAIL: admin@example.test
+      ADMIN_PASSWORD: LocalAdminPassword123!
+      API_URL: http://127.0.0.1:3333
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run db:generate
+      - run: npm run db:push
+      - run: npm run db:seed-admin
+      - run: npm run typecheck
+      - run: npm run typecheck:passenger
+      - run: npm run typecheck:driver
+      - run: npm run build:api
+      - name: Start API
+        run: |
+          npm run dev:api > /tmp/mobilidade-api.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail http://127.0.0.1:3333/health; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/mobilidade-api.log
+          exit 1
+      - run: npm run test:integration
