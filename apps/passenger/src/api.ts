@@ -8,7 +8,8 @@ export interface RouteEstimate {
   origin: { latitude: number; longitude: number; label: string };
   destination: { latitude: number; longitude: number; label: string };
   distanceKm: number;
-  durationMinutes: number;\n  routeCoordinates: [number, number][];
+  durationMinutes: number;
+  routeCoordinates: [number, number][];
   estimatedFareCents: number;
   estimatedFare: number;
   currency: "BRL";
@@ -81,7 +82,9 @@ export const authApi = {
     request<{ message: string; developmentCode?: string }>("/auth/verification/phone", { method: "POST" }, token),
   confirmVerification: (token: string, channel: "email" | "phone", code: string) =>
     request<{ message: string }>("/auth/verification/confirm", { method: "POST", body: JSON.stringify({ channel, code }) }, token),
-  estimateRoute: (origin: string, destination: string) =>\n    request<RouteEstimate>("/mobility/estimate", { method: "POST", body: JSON.stringify({ origin, destination }) }),\n  updateDriverProfile: (token: string, input: {
+  estimateRoute: (origin: string, destination: string) =>
+    request<RouteEstimate>("/mobility/estimate", { method: "POST", body: JSON.stringify({ origin, destination }) }),
+  updateDriverProfile: (token: string, input: {
     cpf?: string; licenseNumber?: string; vehicleMake?: string; vehicleModel?: string;
     vehicleColor?: string; vehiclePlate?: string;
   }) => request<{ driverProfile: NonNullable<AuthUser["driverProfile"]> }>(
