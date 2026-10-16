@@ -101,7 +101,8 @@ export default function App() {
           <View style={s.topline}><Brand/><View style={s.pill}><View style={s.pillDot}/><Text style={s.pillText}>PASSAGEIRO</Text></View></View>
           <View style={s.hero}>
             <View style={s.heroBadge}><Text style={s.heroBadgeText}>●  SUA CIDADE, NO SEU RITMO</Text></View>
-            <Text style={s.heroTitle}>Chegue lá.{ "\n" }Do seu jeito.</Text>
+            <Text style={s.heroTitle}>Chegue lá.{ "
+" }Do seu jeito.</Text>
             <Text style={s.heroCopy}>Mobilidade simples, confortável e feita para a sua rotina.</Text>
             <View style={s.routeArt}>
               <View style={s.routeLine}/><View style={[s.routePoint,{top:20,left:28}]}/><View style={[s.routePoint,{bottom:20,right:30,backgroundColor:C.lime,borderColor:C.ink}]}/>
@@ -119,12 +120,14 @@ export default function App() {
             {mode==="register" && <Field label="NOME COMPLETO" value={name} onChangeText={setName} placeholder="Como podemos te chamar?" autoCapitalize="words"/>}
             <Field label="E-MAIL" value={email} onChangeText={setEmail} placeholder="voce@exemplo.com" keyboardType="email-address" autoCapitalize="none"/>
             {mode==="register" && <Field label="TELEFONE (OPCIONAL)" value={phone} onChangeText={setPhone} placeholder="+55 (11) 99999-9999" keyboardType="phone-pad"/>}
-            {mode==="forgot" && <Field label="CÓDIGO DE RECUPERAÇÃO" value={resetCode} onChangeText={setResetCode} placeholder="Código de 6 dígitos" keyboardType="phone-pad"/>}\n            {mode!=="forgot" || !!resetCode ? <><Text style={s.fieldLabel}>{mode==="forgot"?"NOVA SENHA":"SENHA"}</Text>
+            {mode==="forgot" && <Field label="CÓDIGO DE RECUPERAÇÃO" value={resetCode} onChangeText={setResetCode} placeholder="Código de 6 dígitos" keyboardType="phone-pad"/>}
+            {mode!=="forgot" || !!resetCode ? <><Text style={s.fieldLabel}>{mode==="forgot"?"NOVA SENHA":"SENHA"}</Text>
             <View style={s.passwordRow}><TextInput style={s.passwordInput} value={password} onChangeText={setPassword} placeholder="Mínimo de 8 caracteres" placeholderTextColor="#9AA59E" secureTextEntry={!showPassword} autoCapitalize="none" autoCorrect={false}/><Pressable onPress={()=>setShowPassword(!showPassword)}><Text style={s.showText}>{showPassword?"Ocultar":"Mostrar"}</Text></Pressable></View></> : null}
             {mode==="register" && <Text style={s.hint}>Use pelo menos 8 caracteres.</Text>}
             {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
             {!!notice && <Text style={s.notice}>{notice}</Text>}
-            {mode==="login" && <Pressable onPress={()=>{setMode("forgot");setError("");setNotice("");setResetCode("");}}><Text style={s.link}>Esqueci minha senha</Text></Pressable>}\n            <Pressable style={[s.primaryButton,submitting&&{opacity:0.7}]} onPress={submit} disabled={submitting}>
+            {mode==="login" && <Pressable onPress={()=>{setMode("forgot");setError("");setNotice("");setResetCode("");}}><Text style={s.link}>Esqueci minha senha</Text></Pressable>}
+            <Pressable style={[s.primaryButton,submitting&&{opacity:0.7}]} onPress={submit} disabled={submitting}>
               {submitting?<ActivityIndicator color={C.ink}/>:<Text style={s.primaryText}>{mode==="forgot"?(resetCode?"Redefinir senha":"Enviar código"):mode==="login"?"Entrar na minha conta":"Criar conta grátis"} <Text style={{fontSize:20}}>→</Text></Text>}
             </Pressable>
             <Text style={s.terms}>Ao continuar, você concorda com nossos termos de uso e política de privacidade.</Text>
