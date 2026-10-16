@@ -190,14 +190,14 @@ app.post("/mobility/estimate", {
     }
 
     const routeUrl = new URL(`https://router.project-osrm.org/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}`);
-    routeUrl.searchParams.set("overview", "false");
+    routeUrl.searchParams.set("overview", "full");\n    routeUrl.searchParams.set("geometries", "geojson");
     routeUrl.searchParams.set("alternatives", "false");
     routeUrl.searchParams.set("steps", "false");
     const response = await fetch(routeUrl, { signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error("O serviço de rotas está indisponível.");
     const routeData = await response.json() as {
       code: string;
-      routes?: Array<{ distance: number; duration: number }>;
+      routes?: Array<{ distance: number; duration: number; geometry?: { coordinates: [number, number][] } }>;
     };
     const route = routeData.routes?.[0];
     if (routeData.code !== "Ok" || !route) {
@@ -218,7 +218,7 @@ app.post("/mobility/estimate", {
       origin,
       destination,
       distanceKm: Number(distanceKm.toFixed(2)),
-      durationMinutes: Math.max(1, Math.round(durationMinutes)),
+      durationMinutes: Math.max(1, Math.round(durationMinutes)),\n      routeCoordinates: route.geometry?.coordinates ?? [],
       estimatedFareCents,
       estimatedFare: Number((estimatedFareCents / 100).toFixed(2)),
       currency: "BRL",
