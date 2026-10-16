@@ -3,7 +3,8 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView,
   StatusBar, StyleSheet, Text, TextInput, View,
 } from "react-native";
-import * as SecureStore from "expo-secure-store";\nimport { WebView } from "react-native-webview";
+import * as SecureStore from "expo-secure-store";
+import { WebView } from "react-native-webview";
 import { authApi, API_URL, type AuthUser, type RouteEstimate } from "./src/api";
 
 const TOKEN_KEY = "mobilidade.passenger.token";
