@@ -12,6 +12,7 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:16
@@ -66,3 +67,35 @@ jobs:
           cat /tmp/mobilidade-api.log
           exit 1
       - run: npm run test:integration
+
+      - name: Install Maestro CLI
+        run: curl -Ls "https://get.maestro.mobile.dev" | bash
+      - name: Run Android emulator UI tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            export EXPO_PUBLIC_API_URL=http://10.0.2.2:3333
+
+            cd apps/passenger
+            npx expo prebuild --platform android --no-install --non-interactive
+            cd android
+            ./gradlew assembleRelease
+            adb install -r app/build/outputs/apk/release/app-release.apk
+            cd ../../..
+
+            maestro test .maestro/passenger-session.yaml
+
+            cd apps/driver
+            npx expo prebuild --platform android --no-install --non-interactive
+            cd android
+            ./gradlew assembleRelease
+            adb install -r app/build/outputs/apk/release/app-release.apk
+            cd ../../..
+
+            maestro test .maestro/driver-session.yaml
