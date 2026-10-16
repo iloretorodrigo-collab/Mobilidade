@@ -15,7 +15,9 @@ Plataforma de mobilidade urbana conectando passageiros e motoristas. Este reposi
 - Campos iniciais para perfil do motorista e veículo.
 - PostgreSQL + Prisma para persistência.
 - Limitação de requisições nas rotas de autenticação.
-- Workflow de CI para validação automatizada.\n- Geocodificação de endereços e cálculo de rotas de carro via OpenStreetMap Nominatim + OSRM.\n- Estimativa inicial de preço por distância e duração, com valores configuráveis.
+- Workflow de CI para validação automatizada.
+- Geocodificação de endereços e cálculo de rotas de carro via OpenStreetMap Nominatim + OSRM.
+- Estimativa inicial de preço por distância e duração, com valores configuráveis.
 
 ## Rodar localmente
 
@@ -63,5 +65,6 @@ Configure `EXPO_PUBLIC_API_URL` para o endereço da API acessível pelo disposit
 - Verificação de e-mail e telefone, recuperação de senha e refresh tokens.
 - Fluxo administrativo de aprovação de motoristas.
 - Aplicativos móveis reais para passageiro e motorista.
-- Mapas nativos integrados, despacho de corridas e localização em tempo real.\n- Validar e ajustar a política comercial de tarifas antes de produção.
+- Visualização de rotas no OpenStreetMap, despacho de corridas e localização em tempo real.
+- Validar e ajustar a política comercial de tarifas antes de produção.
 - Testes automatizados, migrações versionadas, monitoramento e revisão de segurança/LGPD.
