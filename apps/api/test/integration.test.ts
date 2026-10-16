@@ -19,7 +19,7 @@ async function api(path: string, method = "GET", body?: unknown, token?: string)
 }
 
 test("auth lifecycle, contact verification, password reset and driver approval", async () => {
-  assert.equal((await api("/health")).status, 200);
+  assert.equal((await api("/health")).status, 200);\n  const invalidRoute = await api("/mobility/estimate", "POST", { origin: "x", destination: "" });\n  assert.equal(invalidRoute.status, 400);
   const registered = await api("/auth/register", "POST", {
     name: "Passageiro Teste", email: passengerEmail, phone: "+1555" + suffix.slice(-7), password: "PassageiroSenha123!", role: "passenger",
   });
