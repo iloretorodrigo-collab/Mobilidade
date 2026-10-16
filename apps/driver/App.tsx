@@ -12,7 +12,6 @@ const C = { ink: "#17231D", muted: "#6E7A72", green: "#167A55", lime: "#D7FA75",
 export default function App() {
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [phone, setPhone] = useState(""); const [password, setPassword] = useState("");
-  const [resetCode, setResetCode] = useState("");
   const [cpf,setCpf]=useState(""); const [licenseNumber,setLicenseNumber]=useState(""); const [vehicleMake,setVehicleMake]=useState(""); const [vehicleModel,setVehicleModel]=useState(""); const [vehicleColor,setVehicleColor]=useState(""); const [vehiclePlate,setVehiclePlate]=useState("");
   const [resetCode,setResetCode]=useState(""); const [showPassword,setShowPassword]=useState(false); const [user,setUser]=useState<AuthUser|null>(null); const [token,setToken]=useState<string|null>(null); const [loading,setLoading]=useState(true); const [submitting,setSubmitting]=useState(false); const [error,setError]=useState(""); const [notice,setNotice]=useState("");
 
