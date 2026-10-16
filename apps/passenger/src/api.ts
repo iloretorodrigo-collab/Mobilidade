@@ -4,6 +4,19 @@ const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3333").rep
 
 export type AccountRole = "passenger" | "driver";
 
+export interface RouteEstimate {
+  origin: { latitude: number; longitude: number; label: string };
+  destination: { latitude: number; longitude: number; label: string };
+  distanceKm: number;
+  durationMinutes: number;
+  estimatedFareCents: number;
+  estimatedFare: number;
+  currency: "BRL";
+  pricing: { baseCents: number; perKmCents: number; perMinuteCents: number; minimumCents: number; note: string };
+  mapUrl: string;
+  provider: { geocoding: string; routing: string };
+}
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -68,7 +81,7 @@ export const authApi = {
     request<{ message: string; developmentCode?: string }>("/auth/verification/phone", { method: "POST" }, token),
   confirmVerification: (token: string, channel: "email" | "phone", code: string) =>
     request<{ message: string }>("/auth/verification/confirm", { method: "POST", body: JSON.stringify({ channel, code }) }, token),
-  updateDriverProfile: (token: string, input: {
+  estimateRoute: (origin: string, destination: string) =>\n    request<RouteEstimate>("/mobility/estimate", { method: "POST", body: JSON.stringify({ origin, destination }) }),\n  updateDriverProfile: (token: string, input: {
     cpf?: string; licenseNumber?: string; vehicleMake?: string; vehicleModel?: string;
     vehicleColor?: string; vehiclePlate?: string;
   }) => request<{ driverProfile: NonNullable<AuthUser["driverProfile"]> }>(
