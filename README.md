@@ -58,6 +58,14 @@ Documentação detalhada: [API atual](apps/api/README.md) · [Autenticação](do
 
 Configure `EXPO_PUBLIC_API_URL` para o endereço da API acessível pelo dispositivo. No emulador Android use `http://10.0.2.2:3333`; em aparelho físico use o IP local do computador na rede Wi-Fi. Veja os detalhes em [app do passageiro](apps/passenger/README.md) e [app do motorista](apps/driver/README.md).
 
+## Contratos e primeiro fluxo MVP
+
+- Contrato OpenAPI: [docs/openapi.yaml](docs/openapi.yaml) — validação automática no CI.
+- Eventos WebSocket: [docs/websocket-events.md](docs/websocket-events.md).
+- Estados da corrida: [docs/trip-state-machine.md](docs/trip-state-machine.md).
+- Exemplos REST: [docs/api-examples.md](docs/api-examples.md).
+- MVP de cotação e solicitação de corrida: `POST /api/v1/quotes`, `POST /api/v1/trips` e `GET /api/v1/trips/:tripId`. A cotação ainda é aproximada e não usa Google Maps.
+
 ## Próximas etapas
 
 - Verificação de e-mail e telefone, recuperação de senha e refresh tokens.
