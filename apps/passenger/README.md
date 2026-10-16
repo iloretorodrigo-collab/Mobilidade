@@ -1,12 +1,15 @@
 # App do passageiro
 
-Aplicativo móvel planejado em React Native + Expo.
+Aplicativo React Native + Expo com telas de cadastro, login e perfil conectadas à API.
 
-## Fluxos previstos
-- Cadastro e autenticação
-- Definir origem e destino
-- Estimar corrida e solicitar motorista
-- Acompanhar corrida e compartilhar viagem
-- Histórico, avaliação e suporte
+## Configuração
 
-Este diretório é um placeholder de arquitetura; a interface e as integrações ainda precisam ser implementadas.
+1. Instale dependências na raiz: `npm install`.
+2. Configure a API com PostgreSQL, `.env` e `JWT_SECRET` seguindo [o guia da API](../api/README.md).
+3. Defina `EXPO_PUBLIC_API_URL` antes de iniciar o Expo. Exemplos:
+   - iOS Simulator: `http://localhost:3333`
+   - Android Emulator: `http://10.0.2.2:3333`
+   - Celular físico: `http://IP_LOCAL_DO_SEU_COMPUTADOR:3333` (mesma rede Wi-Fi).
+4. Inicie na raiz: `npm run dev:passenger`.
+
+A API precisa estar acessível pelo dispositivo. O token é armazenado com Expo SecureStore. Corridas e pagamentos ainda não foram implementados.
