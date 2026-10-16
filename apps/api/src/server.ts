@@ -1,4 +1,5 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { createHash, randomInt } from "node:crypto";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
@@ -78,6 +79,8 @@ function publicUser(user: {
   role: UserRole;
   createdAt: Date;
   updatedAt: Date;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
   driverProfile?: {
     vehicleMake: string | null;
     vehicleModel: string | null;
@@ -95,6 +98,8 @@ function publicUser(user: {
     role: user.role.toLowerCase(),
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
+    emailVerified: user.emailVerified ?? false,
+    phoneVerified: user.phoneVerified ?? false,
     ...(user.role === "DRIVER"
       ? {
           driverProfile: user.driverProfile
@@ -137,6 +142,12 @@ app.get("/", async () => ({
     register: "POST /auth/register",
     login: "POST /auth/login",
     currentUser: "GET /me",
+    forgotPassword: "POST /auth/password/forgot",
+    resetPassword: "POST /auth/password/reset",
+    verifyEmail: "POST /auth/verification/email",
+    verifyPhone: "POST /auth/verification/phone",
+    confirmVerification: "POST /auth/verification/confirm",
+    pendingDrivers: "GET /admin/drivers/pending",
     updateProfile: "PATCH /me",
     driverProfile: "PATCH /profiles/driver",
   },
@@ -287,6 +298,173 @@ app.patch("/profiles/driver", { preHandler: requireAuth }, async (request, reply
     request.log.error(error);
     return reply.code(500).send({ error: "Não foi possível atualizar o perfil de motorista." });
   }
+});
+
+
+const sixDigitCode = z.string().regex(/^\d{6}$/);
+const digestCode = (code: string) => createHash("sha256").update(code).digest("hex");
+
+async function sendChallenge(channel: "EMAIL" | "PHONE", destination: string, code: string, purpose: string) {
+  const bodyText = purpose === "RESET_PASSWORD"
+    ? "Seu código para redefinir a senha Mobilidade é " + code + ". Ele expira em 10 minutos."
+    : "Seu código de verificação Mobilidade é " + code + ". Ele expira em 10 minutos.";
+  if (channel === "EMAIL" && process.env.RESEND_API_KEY && process.env.EMAIL_FROM) {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + process.env.RESEND_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [destination], subject: "Seu código Mobilidade", text: bodyText }),
+    });
+    if (!response.ok) throw new Error("Falha no provedor de e-mail.");
+    return;
+  }
+  if (channel === "PHONE" && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM) {
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const payload = new URLSearchParams({ To: destination, From: process.env.TWILIO_FROM, Body: bodyText });
+    const response = await fetch("https://api.twilio.com/2010-04-01/Accounts/" + sid + "/Messages.json", {
+      method: "POST",
+      headers: { Authorization: "Basic " + Buffer.from(sid + ":" + process.env.TWILIO_AUTH_TOKEN).toString("base64"), "Content-Type": "application/x-www-form-urlencoded" },
+      body: payload,
+    });
+    if (!response.ok) throw new Error("Falha no provedor de SMS.");
+    return;
+  }
+  if (process.env.NODE_ENV !== "production") {
+    app.log.info({ channel, destination, code, purpose }, "Código de verificação apenas para desenvolvimento");
+    return;
+  }
+  throw new Error("Provedor de entrega não configurado.");
+}
+
+async function issueChallenge(userId: string, channel: "EMAIL" | "PHONE", purpose: "VERIFY_EMAIL" | "VERIFY_PHONE" | "RESET_PASSWORD", destination: string) {
+  const code = String(randomInt(0, 1000000)).padStart(6, "0");
+  await prisma.verificationChallenge.updateMany({
+    where: { userId, channel, purpose, consumedAt: null },
+    data: { consumedAt: new Date() },
+  });
+  await prisma.verificationChallenge.create({
+    data: { userId, channel, purpose, codeHash: digestCode(code), expiresAt: new Date(Date.now() + 10 * 60 * 1000) },
+  });
+  await sendChallenge(channel, destination, code, purpose);
+  return code;
+}
+
+app.post("/auth/password/forgot", { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } }, async (request, reply) => {
+  const parsed = z.object({ email: z.string().trim().email().transform(v => v.toLowerCase()) }).safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "Informe um e-mail válido." });
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  if (user) {
+    try {
+      const code = await issueChallenge(user.id, "EMAIL", "RESET_PASSWORD", user.email);
+      if (process.env.NODE_ENV !== "production" && !process.env.RESEND_API_KEY) {
+        return reply.send({ message: "Se a conta existir, um código foi gerado.", developmentCode: code });
+      }
+    } catch (error) {
+      request.log.error(error);
+      if (process.env.NODE_ENV === "production") return reply.code(503).send({ error: "Serviço de e-mail indisponível." });
+    }
+  }
+  return reply.send({ message: "Se a conta existir, você receberá instruções para redefinir a senha." });
+});
+
+app.post("/auth/password/reset", { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } }, async (request, reply) => {
+  const parsed = z.object({
+    email: z.string().trim().email().transform(v => v.toLowerCase()),
+    code: sixDigitCode,
+    newPassword: z.string().min(8).max(72),
+  }).safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "Dados inválidos. Código de 6 dígitos e senha de ao menos 8 caracteres." });
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  if (!user) return reply.code(400).send({ error: "Código inválido ou expirado." });
+  const challenge = await prisma.verificationChallenge.findFirst({
+    where: { userId: user.id, channel: "EMAIL", purpose: "RESET_PASSWORD", consumedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!challenge || challenge.attempts >= 5 || challenge.codeHash !== digestCode(parsed.data.code)) {
+    if (challenge) await prisma.verificationChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } });
+    return reply.code(400).send({ error: "Código inválido ou expirado." });
+  }
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(parsed.data.newPassword, 12) } }),
+    prisma.verificationChallenge.update({ where: { id: challenge.id }, data: { consumedAt: new Date() } }),
+    prisma.verificationChallenge.updateMany({ where: { userId: user.id, purpose: "RESET_PASSWORD", consumedAt: null }, data: { consumedAt: new Date() } }),
+  ]);
+  return reply.send({ message: "Senha redefinida. Entre com a nova senha." });
+});
+
+app.post("/auth/verification/email", { preHandler: requireAuth }, async (request, reply) => {
+  const user = await prisma.user.findUnique({ where: { id: request.user.sub } });
+  if (!user) return reply.code(404).send({ error: "Usuário não encontrado." });
+  try {
+    const code = await issueChallenge(user.id, "EMAIL", "VERIFY_EMAIL", user.email);
+    return reply.send({ message: "Código de verificação enviado.", ...(process.env.NODE_ENV !== "production" && !process.env.RESEND_API_KEY ? { developmentCode: code } : {}) });
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(503).send({ error: "Não foi possível enviar o e-mail de verificação." });
+  }
+});
+
+app.post("/auth/verification/phone", { preHandler: requireAuth }, async (request, reply) => {
+  const user = await prisma.user.findUnique({ where: { id: request.user.sub } });
+  if (!user?.phone) return reply.code(400).send({ error: "Cadastre um telefone antes de verificar." });
+  try {
+    const code = await issueChallenge(user.id, "PHONE", "VERIFY_PHONE", user.phone);
+    return reply.send({ message: "Código de verificação enviado.", ...(process.env.NODE_ENV !== "production" && !process.env.TWILIO_ACCOUNT_SID ? { developmentCode: code } : {}) });
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(503).send({ error: "Não foi possível enviar o SMS." });
+  }
+});
+
+app.post("/auth/verification/confirm", { preHandler: requireAuth }, async (request, reply) => {
+  const parsed = z.object({ channel: z.enum(["email", "phone"]), code: sixDigitCode }).safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "Informe canal e código de 6 dígitos." });
+  const channel = parsed.data.channel === "email" ? "EMAIL" : "PHONE";
+  const purpose = channel === "EMAIL" ? "VERIFY_EMAIL" : "VERIFY_PHONE";
+  const challenge = await prisma.verificationChallenge.findFirst({
+    where: { userId: request.user.sub, channel, purpose, consumedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!challenge || challenge.attempts >= 5 || challenge.codeHash !== digestCode(parsed.data.code)) {
+    if (challenge) await prisma.verificationChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } });
+    return reply.code(400).send({ error: "Código inválido ou expirado." });
+  }
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: request.user.sub }, data: channel === "EMAIL" ? { emailVerified: true } : { phoneVerified: true } }),
+    prisma.verificationChallenge.update({ where: { id: challenge.id }, data: { consumedAt: new Date() } }),
+  ]);
+  return reply.send({ message: "Contato verificado com sucesso." });
+});
+
+async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
+  await requireAuth(request, reply);
+  if (reply.sent) return;
+  if (request.user.role !== "ADMIN") return reply.code(403).send({ error: "Acesso exclusivo para administradores." });
+}
+
+app.get("/admin/drivers/pending", { preHandler: requireAdmin }, async (_request, reply) => {
+  const drivers = await prisma.driverProfile.findMany({
+    where: { approvalStatus: "PENDING" }, include: { user: true }, orderBy: { createdAt: "asc" },
+  });
+  return reply.send({ drivers: drivers.map(d => ({
+    userId: d.userId, name: d.user.name, email: d.user.email, phone: d.user.phone,
+    emailVerified: d.user.emailVerified, phoneVerified: d.user.phoneVerified,
+    cpf: d.cpf, licenseNumber: d.licenseNumber, vehicleMake: d.vehicleMake,
+    vehicleModel: d.vehicleModel, vehicleColor: d.vehicleColor, vehiclePlate: d.vehiclePlate,
+    submittedAt: d.createdAt,
+  })) });
+});
+
+app.patch("/admin/drivers/:userId/approval", { preHandler: requireAdmin }, async (request, reply) => {
+  const params = z.object({ userId: z.string().min(1) }).safeParse(request.params);
+  const body = z.object({ status: z.enum(["approved", "rejected"]) }).safeParse(request.body);
+  if (!params.success || !body.success) return reply.code(400).send({ error: "Informe motorista e status approved ou rejected." });
+  const profile = await prisma.driverProfile.findUnique({ where: { userId: params.data.userId } });
+  if (!profile) return reply.code(404).send({ error: "Perfil de motorista não encontrado." });
+  const updated = await prisma.driverProfile.update({
+    where: { userId: params.data.userId },
+    data: { approvalStatus: body.data.status === "approved" ? "APPROVED" : "REJECTED", isOnline: false },
+  });
+  return reply.send({ userId: updated.userId, approvalStatus: updated.approvalStatus.toLowerCase() });
 });
 
 try {
