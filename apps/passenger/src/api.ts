@@ -12,6 +12,8 @@ export interface AuthUser {
   role: AccountRole;
   createdAt: string;
   updatedAt: string;
+  emailVerified: boolean;
+  phoneVerified: boolean;
   driverProfile?: {
     vehicleMake: string | null;
     vehicleModel: string | null;
