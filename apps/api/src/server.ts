@@ -360,7 +360,6 @@ app.post("/auth/password/forgot", { config: { rateLimit: { max: 5, timeWindow: "
       }
     } catch (error) {
       request.log.error(error);
-      if (process.env.NODE_ENV === "production") return reply.code(503).send({ error: "Serviço de e-mail indisponível." });
     }
   }
   return reply.send({ message: "Se a conta existir, você receberá instruções para redefinir a senha." });
