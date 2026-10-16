@@ -46,6 +46,8 @@ jobs:
       - run: npm run typecheck:passenger
       - run: npm run typecheck:driver
       - run: npm run build:api
+      - run: npm run build:passenger
+      - run: npm run build:driver
       - name: Start API
         run: |
           npm run dev:api > /tmp/mobilidade-api.log 2>&1 &
