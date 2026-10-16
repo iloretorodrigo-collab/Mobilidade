@@ -51,6 +51,8 @@ model User {
   emailVerified  Boolean        @default(false)
   phoneVerified  Boolean        @default(false)
   verificationChallenges VerificationChallenge[]
+  adminDriverDecisions DriverApprovalDecision[] @relation("AdminDriverDecisions")
+  driverApprovalDecisions DriverApprovalDecision[] @relation("DriverApprovalDecisions")
   driverProfile  DriverProfile?
   passengerRides Ride[]         @relation("PassengerRides")
   driverRides    Ride[]         @relation("DriverRides")
@@ -110,4 +112,18 @@ model VerificationChallenge {
 
   @@index([userId, purpose, channel, createdAt])
   @@index([expiresAt])
+}
+
+model DriverApprovalDecision {
+  id           String               @id @default(cuid())
+  adminUserId  String
+  driverUserId String
+  status       DriverApprovalStatus
+  reason       String?
+  createdAt    DateTime             @default(now())
+  admin        User                 @relation("AdminDriverDecisions", fields: [adminUserId], references: [id])
+  driver       User                 @relation("DriverApprovalDecisions", fields: [driverUserId], references: [id])
+
+  @@index([driverUserId, createdAt])
+  @@index([adminUserId, createdAt])
 }
