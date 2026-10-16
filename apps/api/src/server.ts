@@ -129,6 +129,112 @@ function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
+
+const routeEstimateSchema = z.object({
+  origin: z.string().trim().min(3).max(180),
+  destination: z.string().trim().min(3).max(180),
+});
+
+type GeoPoint = { latitude: number; longitude: number; label: string };
+
+async function geocodeAddress(address: string): Promise<GeoPoint | null> {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", address);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("limit", "1");
+  const response = await fetch(url, {
+    headers: { "User-Agent": "MobilidadeApp/1.0 (route-estimation)" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error("O serviço de endereços está indisponível.");
+  const results = await response.json() as Array<{ lat: string; lon: string; display_name: string }>;
+  const first = results[0];
+  if (!first) return null;
+  return { latitude: Number(first.lat), longitude: Number(first.lon), label: first.display_name };
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+app.get("/mobility/geocode", {
+  config: { rateLimit: { max: 20, timeWindow: "15 minutes" } },
+}, async (request, reply) => {
+  const parsed = z.object({ query: z.string().trim().min(3).max(180) }).safeParse(request.query);
+  if (!parsed.success) return reply.code(400).send({ error: "Informe um endereço com pelo menos 3 caracteres." });
+  try {
+    const point = await geocodeAddress(parsed.data.query);
+    if (!point) return reply.code(404).send({ error: "Endereço não encontrado. Tente incluir cidade e estado." });
+    return reply.send({ point });
+  } catch (error) {
+    request.log.warn({ err: error }, "Falha ao consultar geocodificação");
+    return reply.code(502).send({ error: "Não foi possível localizar o endereço agora. Tente novamente." });
+  }
+});
+
+app.post("/mobility/estimate", {
+  config: { rateLimit: { max: 20, timeWindow: "15 minutes" } },
+}, async (request, reply) => {
+  const parsed = routeEstimateSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({
+    error: "Informe origem e destino válidos.",
+    details: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.message })),
+  });
+
+  try {
+    const origin = await geocodeAddress(parsed.data.origin);
+    await wait(1100);
+    const destination = await geocodeAddress(parsed.data.destination);
+    if (!origin || !destination) {
+      return reply.code(404).send({ error: "Não encontramos a origem ou o destino. Inclua cidade e estado nos endereços." });
+    }
+
+    const routeUrl = new URL(`https://router.project-osrm.org/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}`);
+    routeUrl.searchParams.set("overview", "false");
+    routeUrl.searchParams.set("alternatives", "false");
+    routeUrl.searchParams.set("steps", "false");
+    const response = await fetch(routeUrl, { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw new Error("O serviço de rotas está indisponível.");
+    const routeData = await response.json() as {
+      code: string;
+      routes?: Array<{ distance: number; duration: number }>;
+    };
+    const route = routeData.routes?.[0];
+    if (routeData.code !== "Ok" || !route) {
+      return reply.code(422).send({ error: "Não foi possível calcular uma rota de carro entre esses endereços." });
+    }
+
+    const distanceKm = route.distance / 1000;
+    const durationMinutes = route.duration / 60;
+    const baseCents = Math.max(0, Number(process.env.MOBILIDADE_FARE_BASE_CENTS ?? 500));
+    const perKmCents = Math.max(0, Number(process.env.MOBILIDADE_FARE_PER_KM_CENTS ?? 220));
+    const perMinuteCents = Math.max(0, Number(process.env.MOBILIDADE_FARE_PER_MINUTE_CENTS ?? 35));
+    const minimumCents = Math.max(0, Number(process.env.MOBILIDADE_FARE_MINIMUM_CENTS ?? 800));
+    const estimatedFareCents = Math.round(Math.max(minimumCents, baseCents + distanceKm * perKmCents + durationMinutes * perMinuteCents));
+    const mapUrl = "https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=" +
+      encodeURIComponent(`${origin.latitude},${origin.longitude};${destination.latitude},${destination.longitude}`);
+
+    return reply.send({
+      origin,
+      destination,
+      distanceKm: Number(distanceKm.toFixed(2)),
+      durationMinutes: Math.max(1, Math.round(durationMinutes)),
+      estimatedFareCents,
+      estimatedFare: Number((estimatedFareCents / 100).toFixed(2)),
+      currency: "BRL",
+      pricing: {
+        baseCents, perKmCents, perMinuteCents, minimumCents,
+        note: "Estimativa inicial; o valor final pode variar com trânsito, espera, demanda e ajustes comerciais.",
+      },
+      mapUrl,
+      provider: { geocoding: "OpenStreetMap Nominatim", routing: "OSRM" },
+    });
+  } catch (error) {
+    request.log.warn({ err: error }, "Falha ao estimar rota");
+    return reply.code(502).send({ error: "O serviço de mapas está temporariamente indisponível. Tente novamente." });
+  }
+});
+
 app.get("/health", async () => ({
   status: "ok",
   service: "mobilidade-api",
@@ -150,6 +256,8 @@ app.get("/", async () => ({
     pendingDrivers: "GET /admin/drivers/pending",
     updateProfile: "PATCH /me",
     driverProfile: "PATCH /profiles/driver",
+    geocode: "GET /mobility/geocode?query=...",
+    estimateRoute: "POST /mobility/estimate",
   },
 }));
 
