@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Mobilidade Passageiro",
+    "slug": "mobilidade-passageiro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "mobilidade-passageiro",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "br.com.mobilidade.passenger"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}
