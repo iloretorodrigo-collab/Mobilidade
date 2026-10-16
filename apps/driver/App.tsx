@@ -1,0 +1,84 @@
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView,
+  StatusBar, StyleSheet, Text, TextInput, View,
+} from "react-native";
+import * as SecureStore from "expo-secure-store";
+import { authApi, API_URL, type AuthUser } from "./src/api";
+
+const TOKEN_KEY = "mobilidade.driver.token";
+const C = { ink: "#17231D", muted: "#6E7A72", green: "#167A55", lime: "#D7FA75", paper: "#F5F7F3", white: "#FFFFFF", line: "#E2E8E1", red: "#B42318", amber: "#A15C08" };
+
+export default function App() {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [phone, setPhone] = useState(""); const [password, setPassword] = useState("");
+  const [cpf,setCpf]=useState(""); const [licenseNumber,setLicenseNumber]=useState(""); const [vehicleMake,setVehicleMake]=useState(""); const [vehicleModel,setVehicleModel]=useState(""); const [vehicleColor,setVehicleColor]=useState(""); const [vehiclePlate,setVehiclePlate]=useState("");
+  const [showPassword,setShowPassword]=useState(false); const [user,setUser]=useState<AuthUser|null>(null); const [token,setToken]=useState<string|null>(null); const [loading,setLoading]=useState(true); const [submitting,setSubmitting]=useState(false); const [error,setError]=useState(""); const [notice,setNotice]=useState("");
+
+  useEffect(()=>{(async()=>{try{const saved=await SecureStore.getItemAsync(TOKEN_KEY);if(saved){const result=await authApi.me(saved);if(result.user.role==="driver"){setToken(saved);setUser(result.user);}else await SecureStore.deleteItemAsync(TOKEN_KEY);}}catch{await SecureStore.deleteItemAsync(TOKEN_KEY);}finally{setLoading(false);}})();},[]);
+
+  async function submit(){
+    setError("");setNotice("");
+    if(mode==="register"&&name.trim().length<2)return setError("Informe seu nome completo.");
+    if(!email.trim()||!email.includes("@"))return setError("Informe um e-mail válido.");
+    if(password.length<8)return setError("A senha deve ter pelo menos 8 caracteres.");
+    setSubmitting(true);
+    try{
+      let result;
+      if(mode==="register"){
+        result=await authApi.register({name:name.trim(),email:email.trim().toLowerCase(),phone:phone.trim()||undefined,password,role:"driver"});
+        await SecureStore.setItemAsync(TOKEN_KEY,result.token);
+        const driverFields={cpf:cpf.trim()||undefined,licenseNumber:licenseNumber.trim()||undefined,vehicleMake:vehicleMake.trim()||undefined,vehicleModel:vehicleModel.trim()||undefined,vehicleColor:vehicleColor.trim()||undefined,vehiclePlate:vehiclePlate.trim()||undefined};
+        if(Object.values(driverFields).some(Boolean)){
+          try{await authApi.updateDriverProfile(result.token,driverFields);}catch(e){setNotice(e instanceof Error?e.message:"Conta criada, mas não foi possível salvar os dados do veículo.");}
+        }
+      }else{
+        result=await authApi.login({email:email.trim().toLowerCase(),password});
+        if(result.user.role!=="driver")throw new Error("Esta conta não é de motorista. Use o aplicativo de passageiro.");
+        await SecureStore.setItemAsync(TOKEN_KEY,result.token);
+      }
+      const fresh=await authApi.me(result.token);
+      setToken(result.token);setUser(fresh.user);setPassword("");
+    }catch(e){setError(e instanceof Error?e.message:"Não foi possível entrar.");}
+    finally{setSubmitting(false);}
+  }
+  async function logout(){await SecureStore.deleteItemAsync(TOKEN_KEY);setToken(null);setUser(null);setMode("login");setNotice("Você saiu da sua conta.");}
+
+  if(loading)return <View style={s.loading}><ActivityIndicator size="large" color={C.green}/><Text style={s.muted}>Preparando sua área...</Text></View>;
+  if(user&&token)return <View style={s.page}><StatusBar barStyle="dark-content" backgroundColor={C.paper}/><ScrollView contentContainerStyle={s.dashboard}>
+    <View style={s.topline}><Brand/><Pressable onPress={logout}><Text style={s.link}>Sair</Text></Pressable></View>
+    <View style={s.hello}><Text style={s.eyebrow}>ÁREA DO MOTORISTA</Text><Text style={s.title}>Olá, {user.name.split(" ")[0]}.</Text><Text style={s.subtitle}>Seu próximo destino começa com você.</Text></View>
+    <View style={s.statusCard}><View style={s.statusIcon}><Text style={{fontSize:25}}>✓</Text></View><Text style={s.cardTitle}>Cadastro recebido</Text><Text style={s.cardText}>Seus dados estão salvos. A aprovação documental ainda será feita pela equipe da plataforma.</Text><View style={s.approval}><View style={[s.dot,{backgroundColor:user.driverProfile?.approvalStatus==="approved"?C.green:C.amber}]}/><Text style={[s.approvalText,{color:user.driverProfile?.approvalStatus==="approved"?C.green:C.amber}]}>Status: {statusLabel(user.driverProfile?.approvalStatus)}</Text></View></View>
+    <View style={s.profileCard}><Text style={s.sectionLabel}>SEU PERFIL</Text><Info label="Nome" value={user.name}/><Info label="E-mail" value={user.email}/><Info label="Telefone" value={user.phone||"Não informado"}/><Info label="Veículo" value={[user.driverProfile?.vehicleMake,user.driverProfile?.vehicleModel].filter(Boolean).join(" ")||"Ainda não informado"}/><Info label="Cor / placa" value={[user.driverProfile?.vehicleColor,user.driverProfile?.vehiclePlate].filter(Boolean).join(" · ")||"Ainda não informado"}/></View>
+    <View style={s.noticeCard}><Text style={s.noticeTitle}>Próxima etapa</Text><Text style={s.noticeCopy}>O recebimento de corridas será liberado após a verificação dos documentos e a implementação do painel operacional.</Text></View>
+    <Text style={s.footer}>MOBILIDADE · QUEM MOVE A CIDADE</Text>
+  </ScrollView></View>;
+
+  return <View style={s.page}><StatusBar barStyle="dark-content" backgroundColor={C.paper}/><KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==="ios"?"padding":undefined}><ScrollView contentContainerStyle={s.authScroll} keyboardShouldPersistTaps="handled">
+    <View style={s.topline}><Brand/><View style={s.pill}><View style={s.pillDot}/><Text style={s.pillText}>MOTORISTA</Text></View></View>
+    <View style={s.hero}><View style={s.heroBadge}><Text style={s.heroBadgeText}>●  SUA PRÓXIMA CONQUISTA</Text></View><Text style={s.heroTitle}>Você dirige.{ "\n" }A cidade avança.</Text><Text style={s.heroCopy}>Cadastre-se para fazer parte de uma nova forma de se movimentar.</Text><View style={s.stats}><View style={s.stat}><Text style={s.statSymbol}>↗</Text><Text style={s.statTitle}>No seu ritmo</Text><Text style={s.statCopy}>Mais autonomia</Text></View><View style={s.statDivider}/><View style={s.stat}><Text style={s.statSymbol}>◎</Text><Text style={s.statTitle}>Com segurança</Text><Text style={s.statCopy}>Perfil verificado</Text></View></View></View>
+    <View style={s.formCard}><View style={s.switcher}><Pressable style={[s.tab,mode==="login"&&s.tabActive]} onPress={()=>{setMode("login");setError("");setNotice("");}}><Text style={[s.tabText,mode==="login"&&s.tabTextActive]}>Entrar</Text></Pressable><Pressable style={[s.tab,mode==="register"&&s.tabActive]} onPress={()=>{setMode("register");setError("");setNotice("");}}><Text style={[s.tabText,mode==="register"&&s.tabTextActive]}>Quero dirigir</Text></Pressable></View>
+      <Text style={s.formTitle}>{mode==="login"?"Bem-vindo de volta":"Vamos começar?"}</Text><Text style={s.formSubtitle}>{mode==="login"?"Entre para acessar sua área de motorista.":"Crie sua conta e informe os dados do veículo."}</Text>
+      {mode==="register"&&<><Field label="NOME COMPLETO" value={name} onChangeText={setName} placeholder="Nome como consta no documento" autoCapitalize="words"/></>}
+      <Field label="E-MAIL" value={email} onChangeText={setEmail} placeholder="voce@exemplo.com" keyboardType="email-address" autoCapitalize="none"/>
+      {mode==="register"&&<><Field label="TELEFONE (OPCIONAL)" value={phone} onChangeText={setPhone} placeholder="+55 (11) 99999-9999" keyboardType="phone-pad"/><Text style={s.groupLabel}>DADOS PARA VERIFICAÇÃO <Text style={s.optional}>(OPCIONAIS POR ENQUANTO)</Text></Text><Field label="CPF" value={cpf} onChangeText={setCpf} placeholder="Somente para cadastro" keyboardType="numeric"/><Field label="CNH / REGISTRO" value={licenseNumber} onChangeText={setLicenseNumber} placeholder="Número do registro da CNH" keyboardType="default" autoCapitalize="characters"/><Text style={s.groupLabel}>SEU VEÍCULO</Text><View style={s.twoCols}><View style={{flex:1}}><Field label="MARCA" value={vehicleMake} onChangeText={setVehicleMake} placeholder="Ex.: Fiat" autoCapitalize="words"/></View><View style={{flex:1}}><Field label="MODELO" value={vehicleModel} onChangeText={setVehicleModel} placeholder="Ex.: Argo" autoCapitalize="words"/></View></View><View style={s.twoCols}><View style={{flex:1}}><Field label="COR" value={vehicleColor} onChangeText={setVehicleColor} placeholder="Ex.: Prata" autoCapitalize="words"/></View><View style={{flex:1}}><Field label="PLACA" value={vehiclePlate} onChangeText={setVehiclePlate} placeholder="ABC1D23" autoCapitalize="characters"/></View></View></>}
+      <Text style={s.fieldLabel}>SENHA</Text><View style={s.passwordRow}><TextInput style={s.passwordInput} value={password} onChangeText={setPassword} placeholder="Mínimo de 8 caracteres" placeholderTextColor="#9AA59E" secureTextEntry={!showPassword} autoCapitalize="none" autoCorrect={false}/><Pressable onPress={()=>setShowPassword(!showPassword)}><Text style={s.showText}>{showPassword?"Ocultar":"Mostrar"}</Text></Pressable></View>
+      {mode==="register"&&<Text style={s.hint}>A conta de motorista começa com aprovação pendente.</Text>}
+      {!!error&&<Text accessibilityRole="alert" style={s.error}>{error}</Text>}{!!notice&&<Text style={s.notice}>{notice}</Text>}
+      <Pressable style={[s.primaryButton,submitting&&{opacity:0.7}]} onPress={submit} disabled={submitting}>{submitting?<ActivityIndicator color={C.ink}/>:<Text style={s.primaryText}>{mode==="login"?"Entrar na minha conta":"Criar conta de motorista"} <Text style={{fontSize:20}}>→</Text></Text>}</Pressable>
+      <Text style={s.terms}>Seus dados serão usados para criar seu perfil na plataforma. Nunca use dados reais em ambientes de teste compartilhados.</Text><Text style={s.apiNote}>API: {API_URL}</Text>
+    </View><Text style={s.footer}>MOBILIDADE © 2026 · QUEM MOVE A CIDADE</Text>
+  </ScrollView></KeyboardAvoidingView></View>;
+}
+
+function statusLabel(value?:string){if(value==="approved")return "Aprovado";if(value==="rejected")return "Precisa de revisão";return "Aguardando aprovação";}
+function Brand(){return <View style={s.brand}><View style={s.brandMark}><Text style={s.brandMarkText}>m</Text></View><Text style={s.brandName}>mobilidade<Text style={{color:C.green}}>.</Text></Text></View>;}
+function Field(props:{label:string;value:string;onChangeText:(value:string)=>void;placeholder:string;keyboardType?:"default"|"email-address"|"phone-pad"|"numeric";autoCapitalize?:"none"|"sentences"|"words"|"characters"}){return <View style={s.field}><Text style={s.fieldLabel}>{props.label}</Text><TextInput style={s.input} value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor="#9AA59E" keyboardType={props.keyboardType??"default"} autoCapitalize={props.autoCapitalize??"sentences"} autoCorrect={false}/></View>;}
+function Info({label,value}:{label:string;value:string}){return <View style={s.infoRow}><Text style={s.infoLabel}>{label}</Text><Text style={s.infoValue}>{value}</Text></View>;}
+
+const s=StyleSheet.create({
+ page:{flex:1,backgroundColor:C.paper},loading:{flex:1,backgroundColor:C.paper,alignItems:"center",justifyContent:"center",gap:12},muted:{color:C.muted,fontSize:14},authScroll:{paddingHorizontal:22,paddingTop:16,paddingBottom:30,maxWidth:640,width:"100%",alignSelf:"center"},topline:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",marginBottom:24},brand:{flexDirection:"row",alignItems:"center",gap:9},brandMark:{width:34,height:34,borderRadius:12,backgroundColor:C.green,alignItems:"center",justifyContent:"center"},brandMarkText:{color:C.lime,fontSize:25,fontWeight:"900",marginTop:-3},brandName:{fontSize:20,fontWeight:"800",letterSpacing:-0.8,color:C.ink},pill:{flexDirection:"row",alignItems:"center",gap:7,borderRadius:99,backgroundColor:"#E8F3E9",paddingHorizontal:12,paddingVertical:8},pillDot:{width:7,height:7,borderRadius:4,backgroundColor:C.green},pillText:{fontSize:10,fontWeight:"800",letterSpacing:1,color:C.green},
+ hero:{paddingTop:5,paddingBottom:22},heroBadge:{alignSelf:"flex-start",backgroundColor:"#EAF1E7",paddingHorizontal:10,paddingVertical:7,borderRadius:7,marginBottom:14},heroBadgeText:{fontSize:9,fontWeight:"800",letterSpacing:1.1,color:C.green},heroTitle:{fontSize:39,lineHeight:43,fontWeight:"900",letterSpacing:-1.5,color:C.ink},heroCopy:{fontSize:14,lineHeight:21,color:C.muted,marginTop:10,maxWidth:330},stats:{flexDirection:"row",alignItems:"center",backgroundColor:"#E9EEE5",borderRadius:16,padding:16,marginTop:20},stat:{flex:1},statSymbol:{fontSize:22,color:C.green,marginBottom:6},statTitle:{fontSize:12,fontWeight:"800",color:C.ink},statCopy:{fontSize:10,color:C.muted,marginTop:3},statDivider:{width:1,height:58,backgroundColor:"#D2DCD0",marginHorizontal:17},
+ formCard:{backgroundColor:C.white,borderRadius:22,padding:20,borderWidth:1,borderColor:"#E8ECE6",shadowColor:"#14211D",shadowOpacity:0.04,shadowRadius:18,shadowOffset:{width:0,height:7},elevation:2},switcher:{flexDirection:"row",padding:4,borderRadius:12,backgroundColor:C.paper,marginBottom:21},tab:{flex:1,alignItems:"center",paddingVertical:11,borderRadius:9},tabActive:{backgroundColor:C.white,shadowColor:"#000",shadowOpacity:0.06,shadowRadius:5,elevation:1},tabText:{fontSize:13,fontWeight:"700",color:C.muted},tabTextActive:{color:C.ink},formTitle:{fontSize:23,fontWeight:"850",letterSpacing:-0.6,color:C.ink},formSubtitle:{fontSize:13,color:C.muted,marginTop:5,marginBottom:19,lineHeight:19},field:{marginBottom:13},fieldLabel:{fontSize:10,fontWeight:"800",letterSpacing:1,color:"#5E6D63",marginBottom:7},input:{height:47,borderWidth:1,borderColor:C.line,borderRadius:11,paddingHorizontal:13,fontSize:14,color:C.ink,backgroundColor:"#FCFDFC"},passwordRow:{height:49,borderWidth:1,borderColor:C.line,borderRadius:11,paddingLeft:13,paddingRight:12,flexDirection:"row",alignItems:"center",backgroundColor:"#FCFDFC"},passwordInput:{flex:1,fontSize:14,color:C.ink},showText:{fontSize:12,fontWeight:"700",color:C.green},groupLabel:{fontSize:10,fontWeight:"800",letterSpacing:1,color:C.green,marginTop:8,marginBottom:13},optional:{fontWeight:"500",color:C.muted,letterSpacing:0},twoCols:{flexDirection:"row",gap:10},hint:{fontSize:11,color:C.muted,marginTop:8,lineHeight:16},error:{color:C.red,fontSize:12,lineHeight:18,marginTop:12},notice:{color:C.green,fontSize:12,lineHeight:18,marginTop:10},primaryButton:{minHeight:52,marginTop:19,backgroundColor:C.lime,borderRadius:12,alignItems:"center",justifyContent:"center",paddingHorizontal:14},primaryText:{fontSize:13,fontWeight:"800",color:C.ink},terms:{fontSize:10,lineHeight:16,color:"#87928A",textAlign:"center",marginTop:14},apiNote:{fontSize:9,color:"#A0AAA2",textAlign:"center",marginTop:10},footer:{fontSize:9,letterSpacing:1.1,textAlign:"center",color:"#9AA59E",marginTop:22,fontWeight:"700"},
+ dashboard:{paddingHorizontal:22,paddingTop:20,paddingBottom:40,maxWidth:640,width:"100%",alignSelf:"center"},link:{color:C.green,fontWeight:"800",fontSize:13},hello:{marginTop:18,marginBottom:23},eyebrow:{fontSize:10,letterSpacing:1.4,fontWeight:"800",color:C.green,marginBottom:10},title:{fontSize:34,fontWeight:"900",letterSpacing:-1,color:C.ink},subtitle:{fontSize:15,color:C.muted,marginTop:7},statusCard:{backgroundColor:C.ink,borderRadius:22,padding:22,marginBottom:16},statusIcon:{width:52,height:52,borderRadius:16,backgroundColor:C.lime,alignItems:"center",justifyContent:"center",marginBottom:22},cardTitle:{fontSize:23,fontWeight:"850",color:C.white,letterSpacing:-0.5},cardText:{fontSize:13,lineHeight:20,color:"#C6D1CA",marginTop:8},approval:{flexDirection:"row",alignItems:"center",gap:8,backgroundColor:"#FFFFFF12",alignSelf:"flex-start",paddingHorizontal:12,paddingVertical:10,borderRadius:9,marginTop:17},dot:{width:8,height:8,borderRadius:4},approvalText:{fontSize:12,fontWeight:"800"},profileCard:{backgroundColor:C.white,borderRadius:20,padding:20,borderWidth:1,borderColor:C.line},sectionLabel:{fontSize:10,fontWeight:"800",letterSpacing:1.3,color:C.muted,marginBottom:14},infoRow:{paddingVertical:12,borderBottomWidth:1,borderBottomColor:"#EFF2EE"},infoLabel:{fontSize:11,color:C.muted,marginBottom:5},infoValue:{fontSize:14,color:C.ink,fontWeight:"700"},noticeCard:{marginTop:15,padding:18,borderRadius:16,backgroundColor:"#E8F3E9"},noticeTitle:{fontSize:13,fontWeight:"800",color:C.green},noticeCopy:{fontSize:12,lineHeight:18,color:C.ink,marginTop:6}
+});
