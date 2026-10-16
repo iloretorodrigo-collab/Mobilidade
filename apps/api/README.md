@@ -31,7 +31,9 @@ A API inicia em `http://localhost:3333`.
 
 ## Endpoints
 
-- `GET /health` — status da API.\n- `GET /mobility/geocode?query=...` — localiza um endereço usando OpenStreetMap Nominatim.\n- `POST /mobility/estimate` — calcula rota de carro, distância, duração aproximada e preço estimado.
+- `GET /health` — status da API.
+- `GET /mobility/geocode?query=...` — localiza um endereço usando OpenStreetMap Nominatim.
+- `POST /mobility/estimate` — calcula rota de carro, distância, duração aproximada e preço estimado.
 - `POST /auth/register` — cria conta de passageiro ou motorista.
 - `POST /auth/login` — autentica por e-mail e senha.
 - `GET /me` — consulta o perfil autenticado.
