@@ -56,6 +56,16 @@ export const authApi = {
   me: (token: string) => request<{ user: AuthUser }>("/me", {}, token),
   updateProfile: (token: string, input: { name?: string; phone?: string | null }) =>
     request<{ user: AuthUser }>("/me", { method: "PATCH", body: JSON.stringify(input) }, token),
+  forgotPassword: (email: string) =>
+    request<{ message: string; developmentCode?: string }>("/auth/password/forgot", { method: "POST", body: JSON.stringify({ email }) }),
+  resetPassword: (email: string, code: string, newPassword: string) =>
+    request<{ message: string }>("/auth/password/reset", { method: "POST", body: JSON.stringify({ email, code, newPassword }) }),
+  requestEmailVerification: (token: string) =>
+    request<{ message: string; developmentCode?: string }>("/auth/verification/email", { method: "POST" }, token),
+  requestPhoneVerification: (token: string) =>
+    request<{ message: string; developmentCode?: string }>("/auth/verification/phone", { method: "POST" }, token),
+  confirmVerification: (token: string, channel: "email" | "phone", code: string) =>
+    request<{ message: string }>("/auth/verification/confirm", { method: "POST", body: JSON.stringify({ channel, code }) }, token),
   updateDriverProfile: (token: string, input: {
     cpf?: string; licenseNumber?: string; vehicleMake?: string; vehicleModel?: string;
     vehicleColor?: string; vehiclePlate?: string;
