@@ -23,6 +23,10 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [verificationChannel, setVerificationChannel] = useState<"email" | "phone" | null>(null);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [profilePhone, setProfilePhone] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -64,6 +68,24 @@ export default function App() {
     finally { setSubmitting(false); }
   }
 
+  useEffect(() => { if (user) { setProfileName(user.name); setProfilePhone(user.phone ?? ""); } }, [user]);
+
+  async function startVerification(channel: "email" | "phone") {
+    if (!token) return;
+    try { const result = channel === "email" ? await authApi.requestEmailVerification(token) : await authApi.requestPhoneVerification(token); setVerificationChannel(channel); setVerificationCode(result.developmentCode ?? ""); setNotice(result.developmentCode ? "Código de desenvolvimento: " + result.developmentCode : result.message); setError(""); }
+    catch (e) { setError(e instanceof Error ? e.message : "Não foi possível solicitar o código."); }
+  }
+  async function confirmVerification() {
+    if (!token || !verificationChannel || verificationCode.length !== 6) return setError("Informe o código de 6 dígitos.");
+    try { await authApi.confirmVerification(token, verificationChannel, verificationCode); const fresh = await authApi.me(token); setUser(fresh.user); setVerificationChannel(null); setVerificationCode(""); setNotice("Contato verificado com sucesso."); setError(""); }
+    catch (e) { setError(e instanceof Error ? e.message : "Código inválido."); }
+  }
+  async function saveProfile() {
+    if (!token) return;
+    try { const result = await authApi.updateProfile(token, { name: profileName.trim(), phone: profilePhone.trim() || null }); setUser(result.user); setNotice("Perfil atualizado."); setError(""); }
+    catch (e) { setError(e instanceof Error ? e.message : "Não foi possível atualizar o perfil."); }
+  }
+
   async function logout() {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     setToken(null); setUser(null); setMode("login"); setNotice("Você saiu da sua conta.");
@@ -85,8 +107,12 @@ export default function App() {
         </View>
         <View style={s.profileCard}>
           <Text style={s.sectionLabel}>SEU PERFIL</Text>
-          <Info label="Nome" value={user.name}/><Info label="E-mail" value={user.email}/><Info label="Telefone" value={user.phone || "Não informado"}/>
-          <View style={s.status}><View style={s.dot}/><Text style={s.statusText}>Conta autenticada</Text></View>
+          <Field label="NOME" value={profileName} onChangeText={setProfileName} placeholder="Seu nome" autoCapitalize="words"/><Info label="E-mail" value={user.email}/><Field label="TELEFONE" value={profilePhone} onChangeText={setProfilePhone} placeholder="+55..." keyboardType="phone-pad"/>
+          <Pressable style={s.primaryButton} onPress={saveProfile}><Text style={s.primaryText}>Salvar perfil</Text></Pressable>
+          <Text style={s.statusText}>E-mail: {user.emailVerified ? "verificado" : "não verificado"} · Telefone: {user.phoneVerified ? "verificado" : "não verificado"}</Text>
+          <View style={{flexDirection:"row",gap:14,marginTop:12}}><Pressable onPress={()=>startVerification("email")}><Text style={s.link}>Verificar e-mail</Text></Pressable><Pressable onPress={()=>startVerification("phone")}><Text style={s.link}>Verificar telefone</Text></Pressable></View>
+          {!!verificationChannel && <View style={{marginTop:12}}><Field label={"CÓDIGO DE " + verificationChannel.toUpperCase()} value={verificationCode} onChangeText={setVerificationCode} placeholder="6 dígitos" keyboardType="phone-pad"/><Pressable onPress={confirmVerification}><Text style={s.link}>Confirmar código</Text></Pressable></View>}
+          {!!error && <Text style={s.error}>{error}</Text>}{!!notice && <Text style={s.notice}>{notice}</Text>}
         </View>
         <Text style={s.footer}>Mobilidade · Feita para mover você.</Text>
       </ScrollView>
