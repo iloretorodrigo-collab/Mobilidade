@@ -1,5 +1,5 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { createHash, randomInt } from "node:crypto";
+import { createHmac, randomInt } from "node:crypto";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
@@ -302,7 +302,7 @@ app.patch("/profiles/driver", { preHandler: requireAuth }, async (request, reply
 
 
 const sixDigitCode = z.string().regex(/^\d{6}$/);
-const digestCode = (code: string) => createHash("sha256").update(code).digest("hex");
+const digestCode = (code: string) => createHmac("sha256", jwtSecret).update(code).digest("hex");
 
 async function sendChallenge(channel: "EMAIL" | "PHONE", destination: string, code: string, purpose: string) {
   const bodyText = purpose === "RESET_PASSWORD"
@@ -391,7 +391,7 @@ app.post("/auth/password/reset", { config: { rateLimit: { max: 5, timeWindow: "1
   return reply.send({ message: "Senha redefinida. Entre com a nova senha." });
 });
 
-app.post("/auth/verification/email", { preHandler: requireAuth }, async (request, reply) => {
+app.post("/auth/verification/email", { preHandler: requireAuth, config: { rateLimit: { max: 3, timeWindow: "15 minutes" } } }, async (request, reply) => {
   const user = await prisma.user.findUnique({ where: { id: request.user.sub } });
   if (!user) return reply.code(404).send({ error: "Usuário não encontrado." });
   try {
@@ -403,7 +403,7 @@ app.post("/auth/verification/email", { preHandler: requireAuth }, async (request
   }
 });
 
-app.post("/auth/verification/phone", { preHandler: requireAuth }, async (request, reply) => {
+app.post("/auth/verification/phone", { preHandler: requireAuth, config: { rateLimit: { max: 3, timeWindow: "15 minutes" } } }, async (request, reply) => {
   const user = await prisma.user.findUnique({ where: { id: request.user.sub } });
   if (!user?.phone) return reply.code(400).send({ error: "Cadastre um telefone antes de verificar." });
   try {
@@ -456,14 +456,20 @@ app.get("/admin/drivers/pending", { preHandler: requireAdmin }, async (_request,
 
 app.patch("/admin/drivers/:userId/approval", { preHandler: requireAdmin }, async (request, reply) => {
   const params = z.object({ userId: z.string().min(1) }).safeParse(request.params);
-  const body = z.object({ status: z.enum(["approved", "rejected"]) }).safeParse(request.body);
+  const body = z.object({ status: z.enum(["approved", "rejected"]), reason: z.string().trim().max(500).optional() }).safeParse(request.body);
   if (!params.success || !body.success) return reply.code(400).send({ error: "Informe motorista e status approved ou rejected." });
   const profile = await prisma.driverProfile.findUnique({ where: { userId: params.data.userId } });
   if (!profile) return reply.code(404).send({ error: "Perfil de motorista não encontrado." });
-  const updated = await prisma.driverProfile.update({
-    where: { userId: params.data.userId },
-    data: { approvalStatus: body.data.status === "approved" ? "APPROVED" : "REJECTED", isOnline: false },
-  });
+  const status = body.data.status === "approved" ? "APPROVED" : "REJECTED";
+  const [updated] = await prisma.$transaction([
+    prisma.driverProfile.update({
+      where: { userId: params.data.userId },
+      data: { approvalStatus: status, isOnline: false },
+    }),
+    prisma.driverApprovalDecision.create({
+      data: { adminUserId: request.user.sub, driverUserId: params.data.userId, status, reason: body.data.reason },
+    }),
+  ]);
   return reply.send({ userId: updated.userId, approvalStatus: updated.approvalStatus.toLowerCase() });
 });
 
