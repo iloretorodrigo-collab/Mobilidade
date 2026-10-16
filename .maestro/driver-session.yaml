@@ -1,0 +1,38 @@
+appId: br.com.mobilidade.driver
+---
+- launchApp:
+    clearState: true
+- tapOn: "Quero dirigir"
+- scrollUntilVisible:
+    element:
+      text: "Nome como consta no documento"
+    direction: DOWN
+- tapOn: "Nome como consta no documento"
+- inputText: "Motorista E2E"
+- tapOn: "voce@exemplo.com"
+- inputText: "driver.e2e@example.test"
+- scrollUntilVisible:
+    element:
+      text: "Mínimo de 8 caracteres"
+    direction: DOWN
+- tapOn: "Mínimo de 8 caracteres"
+- inputText: "MotoristaE2E123!"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Criar conta de motorista"
+    direction: DOWN
+- tapOn: "Criar conta de motorista"
+- assertVisible: "Olá, Motorista"
+- assertVisible: "Aguardando aprovação"
+- stopApp
+- launchApp
+- assertVisible: "Olá, Motorista"
+- tapOn: "Sair"
+- assertVisible: "Entrar na minha conta"
+- tapOn: "Entrar na minha conta"
+- assertVisible: "Olá, Motorista"
+- stopApp
+- launchApp
+- assertVisible: "Olá, Motorista"
+- assertVisible: "Aguardando aprovação"

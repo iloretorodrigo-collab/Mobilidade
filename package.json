@@ -3,7 +3,10 @@
   "version": "0.3.0",
   "private": true,
   "description": "Urban mobility platform monorepo",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev:api": "npm run dev --workspace @mobilidade/api",
     "dev:passenger": "npm run start --workspace @mobilidade/passenger",
@@ -13,7 +16,13 @@
     "typecheck:passenger": "npm run typecheck --workspace @mobilidade/passenger",
     "typecheck:driver": "npm run typecheck --workspace @mobilidade/driver",
     "db:generate": "npm run db:generate --workspace @mobilidade/database",
-    "db:push": "npm run db:push --workspace @mobilidade/database"
+    "db:push": "npm run db:push --workspace @mobilidade/database",
+    "db:seed-admin": "npm run db:seed-admin --workspace @mobilidade/api",
+    "test:integration": "npm run test:integration --workspace @mobilidade/api",
+    "build:passenger": "npm run build --workspace @mobilidade/passenger",
+    "build:driver": "npm run build --workspace @mobilidade/driver"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

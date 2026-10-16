@@ -1,0 +1,36 @@
+appId: br.com.mobilidade.passenger
+---
+- launchApp:
+    clearState: true
+- tapOn: "Criar conta"
+- scrollUntilVisible:
+    element:
+      text: "Como podemos te chamar?"
+    direction: DOWN
+- tapOn: "Como podemos te chamar?"
+- inputText: "Passageiro E2E"
+- tapOn: "voce@exemplo.com"
+- inputText: "passenger.e2e@example.test"
+- scrollUntilVisible:
+    element:
+      text: "Mínimo de 8 caracteres"
+    direction: DOWN
+- tapOn: "Mínimo de 8 caracteres"
+- inputText: "PassageiroE2E123!"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Criar conta grátis"
+    direction: DOWN
+- tapOn: "Criar conta grátis"
+- assertVisible: "Olá, Passageiro"
+- stopApp
+- launchApp
+- assertVisible: "Olá, Passageiro"
+- tapOn: "Sair"
+- assertVisible: "Entrar na minha conta"
+- tapOn: "Entrar na minha conta"
+- assertVisible: "Olá, Passageiro"
+- stopApp
+- launchApp
+- assertVisible: "Olá, Passageiro"

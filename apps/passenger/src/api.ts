@@ -4,6 +4,20 @@ const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3333").rep
 
 export type AccountRole = "passenger" | "driver";
 
+export interface RouteEstimate {
+  origin: { latitude: number; longitude: number; label: string };
+  destination: { latitude: number; longitude: number; label: string };
+  distanceKm: number;
+  durationMinutes: number;
+  routeCoordinates: [number, number][];
+  estimatedFareCents: number;
+  estimatedFare: number;
+  currency: "BRL";
+  pricing: { baseCents: number; perKmCents: number; perMinuteCents: number; minimumCents: number; note: string };
+  mapUrl: string;
+  provider: { geocoding: string; routing: string };
+}
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -12,6 +26,8 @@ export interface AuthUser {
   role: AccountRole;
   createdAt: string;
   updatedAt: string;
+  emailVerified: boolean;
+  phoneVerified: boolean;
   driverProfile?: {
     vehicleMake: string | null;
     vehicleModel: string | null;
@@ -56,6 +72,18 @@ export const authApi = {
   me: (token: string) => request<{ user: AuthUser }>("/me", {}, token),
   updateProfile: (token: string, input: { name?: string; phone?: string | null }) =>
     request<{ user: AuthUser }>("/me", { method: "PATCH", body: JSON.stringify(input) }, token),
+  forgotPassword: (email: string) =>
+    request<{ message: string; developmentCode?: string }>("/auth/password/forgot", { method: "POST", body: JSON.stringify({ email }) }),
+  resetPassword: (email: string, code: string, newPassword: string) =>
+    request<{ message: string }>("/auth/password/reset", { method: "POST", body: JSON.stringify({ email, code, newPassword }) }),
+  requestEmailVerification: (token: string) =>
+    request<{ message: string; developmentCode?: string }>("/auth/verification/email", { method: "POST" }, token),
+  requestPhoneVerification: (token: string) =>
+    request<{ message: string; developmentCode?: string }>("/auth/verification/phone", { method: "POST" }, token),
+  confirmVerification: (token: string, channel: "email" | "phone", code: string) =>
+    request<{ message: string }>("/auth/verification/confirm", { method: "POST", body: JSON.stringify({ channel, code }) }, token),
+  estimateRoute: (origin: string, destination: string) =>
+    request<RouteEstimate>("/mobility/estimate", { method: "POST", body: JSON.stringify({ origin, destination }) }),
   updateDriverProfile: (token: string, input: {
     cpf?: string; licenseNumber?: string; vehicleMake?: string; vehicleModel?: string;
     vehicleColor?: string; vehiclePlate?: string;
