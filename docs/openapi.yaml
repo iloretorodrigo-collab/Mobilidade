@@ -4,8 +4,7 @@ info:
   version: 1.0.0
   description: |
     Contrato REST inicial da VIAÊ. Os endpoints de autenticação e perfil
-    correspondem à API atualmente existente; endpoints de corridas, mapas,
-    despacho e pagamentos são contratos planejados e ainda precisam de implementação.
+    correspondem à API existente. Cotação e criação/consulta de corrida têm um MVP aproximado; Google Routes, despacho, WebSocket e pagamentos ainda precisam de implementação.
 servers:
   - url: http://localhost:3333
     description: Desenvolvimento local (API atual)
@@ -194,7 +193,7 @@ paths:
       tags: [Pricing]
       operationId: createQuote
       summary: Gerar estimativa de tarifa
-      description: Planejado. A tarifa é calculada no servidor usando regras versionadas e estimativa de rota.
+      description: MVP aproximado implementado com distância geodésica e fator configurável; ainda não usa Google Routes API.
       requestBody:
         required: true
         content:
@@ -206,8 +205,12 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/QuoteResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Somente passageiros podem solicitar cotações
         '422':
           $ref: '#/components/responses/ValidationError'
         '502':
@@ -217,7 +220,7 @@ paths:
       tags: [Trips]
       operationId: requestTrip
       summary: Solicitar corrida
-      description: Planejado. Idempotency-Key deve ser persistida para impedir solicitações duplicadas.
+      MVP implementado com persistência e Idempotency-Key; despacho e atribuição de motorista ainda não estão implementados.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -226,6 +229,11 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CreateTripRequest' }
       responses:
+        '200':
+          description: Resultado original devolvido em repetição idempotente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TripResponse' }
         '201':
           description: Corrida solicitada
           content:
@@ -376,7 +384,7 @@ components:
       in: path
       name: tripId
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: string,  }
     IdempotencyKey:
       in: header
       name: Idempotency-Key
@@ -434,7 +442,7 @@ components:
     User:
       type: object
       properties:
-        id: { type: string, format: uuid }
+        id: { type: string,  }
         name: { type: string }
         email: { type: string, format: email }
         phone: { type: [string, 'null'] }
@@ -509,6 +517,15 @@ components:
             estimatedDistanceMeters: { type: integer, minimum: 0 }
             estimatedDurationSeconds: { type: integer, minimum: 0 }
             estimatedFareCents: { type: integer, minimum: 0 }
+            fareSource: { type: string, enum: [mvp_straight_line_approximation, google_routes] }
+            fareBreakdown:
+              type: object
+              properties:
+                baseFareCents: { type: integer, minimum: 0 }
+                distanceFareCents: { type: integer, minimum: 0 }
+                timeFareCents: { type: integer, minimum: 0 }
+                feesCents: { type: integer, minimum: 0 }
+                discountCents: { type: integer, minimum: 0 }
             expiresAt: { type: string, format: date-time }
     CreateTripRequest:
       type: object
