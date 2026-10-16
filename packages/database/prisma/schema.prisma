@@ -13,6 +13,12 @@ enum UserRole {
   ADMIN
 }
 
+enum DriverApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum RideStatus {
   REQUESTED
   ACCEPTED
@@ -23,34 +29,52 @@ enum RideStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  phone        String?  @unique
-  role         UserRole @default(PASSENGER)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  passengerRides Ride[] @relation("PassengerRides")
-  driverRides    Ride[] @relation("DriverRides")
+  id             String         @id @default(cuid())
+  name           String
+  email          String         @unique
+  phone          String?        @unique
+  passwordHash   String
+  role           UserRole       @default(PASSENGER)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  driverProfile  DriverProfile?
+  passengerRides Ride[]         @relation("PassengerRides")
+  driverRides    Ride[]         @relation("DriverRides")
+}
+
+model DriverProfile {
+  id               String                @id @default(cuid())
+  userId           String                @unique
+  cpf              String?               @unique
+  licenseNumber    String?               @unique
+  vehicleMake      String?
+  vehicleModel     String?
+  vehicleColor     String?
+  vehiclePlate     String?               @unique
+  approvalStatus   DriverApprovalStatus  @default(PENDING)
+  isOnline         Boolean               @default(false)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Ride {
-  id                     String     @id @default(cuid())
-  passengerId            String
-  driverId               String?
-  status                 RideStatus @default(REQUESTED)
-  originLatitude         Float
-  originLongitude        Float
-  destinationLatitude    Float
-  destinationLongitude   Float
-  estimatedFareCents     Int?
-  finalFareCents         Int?
-  requestedAt            DateTime   @default(now())
-  acceptedAt             DateTime?
-  startedAt              DateTime?
-  completedAt            DateTime?
-  passenger              User       @relation("PassengerRides", fields: [passengerId], references: [id])
-  driver                 User?      @relation("DriverRides", fields: [driverId], references: [id])
+  id                   String     @id @default(cuid())
+  passengerId          String
+  driverId             String?
+  status               RideStatus @default(REQUESTED)
+  originLatitude       Float
+  originLongitude      Float
+  destinationLatitude  Float
+  destinationLongitude Float
+  estimatedFareCents   Int?
+  finalFareCents       Int?
+  requestedAt          DateTime   @default(now())
+  acceptedAt           DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  passenger            User       @relation("PassengerRides", fields: [passengerId], references: [id])
+  driver               User?      @relation("DriverRides", fields: [driverId], references: [id])
 
   @@index([passengerId, requestedAt])
   @@index([driverId, status])
