@@ -19,6 +19,17 @@ enum DriverApprovalStatus {
   REJECTED
 }
 
+enum VerificationChannel {
+  EMAIL
+  PHONE
+}
+
+enum VerificationPurpose {
+  VERIFY_EMAIL
+  VERIFY_PHONE
+  RESET_PASSWORD
+}
+
 enum RideStatus {
   REQUESTED
   ACCEPTED
@@ -37,6 +48,9 @@ model User {
   role           UserRole       @default(PASSENGER)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+  emailVerified  Boolean        @default(false)
+  phoneVerified  Boolean        @default(false)
+  verificationChallenges VerificationChallenge[]
   driverProfile  DriverProfile?
   passengerRides Ride[]         @relation("PassengerRides")
   driverRides    Ride[]         @relation("DriverRides")
@@ -79,4 +93,21 @@ model Ride {
   @@index([passengerId, requestedAt])
   @@index([driverId, status])
   @@index([status, requestedAt])
+}
+
+
+model VerificationChallenge {
+  id         String              @id @default(cuid())
+  userId     String
+  channel    VerificationChannel
+  purpose    VerificationPurpose
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int                 @default(0)
+  createdAt  DateTime            @default(now())
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, channel, createdAt])
+  @@index([expiresAt])
 }
