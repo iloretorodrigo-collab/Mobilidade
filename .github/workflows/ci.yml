@@ -14,6 +14,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install
+      - name: Validate OpenAPI contract
+        run: npm run lint:openapi
       - run: npm run db:generate
       - run: npm run typecheck
       - run: npm run build:api
