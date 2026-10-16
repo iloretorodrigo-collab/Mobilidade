@@ -143,5 +143,14 @@ A API atual pode retornar formatos de erro diferentes em algumas rotas. A padron
 - Valores monetários em centavos inteiros (ex.: `2450` = R$ 24,50).
 - Datas ISO 8601 em UTC.
 - Coordenadas em graus decimais WGS84.
-- IDs das entidades persistidas como UUID quando assim definido no schema.
+- IDs das entidades persistidas como CUID no schema Prisma atual.
 - Não registrar tokens, senhas, CPF, CNH ou dados de cartão nos logs.
+
+
+## Estado real do primeiro fluxo MVP
+
+- Implementados nesta branch: `POST /api/v1/quotes`, `POST /api/v1/trips` e `GET /api/v1/trips/{tripId}`.
+- A cotação usa distância geodésica com fator de estrada configurável; não chama Google Maps ainda e não deve ser tratada como rota real.
+- A solicitação persiste no PostgreSQL, reserva a cotação uma única vez e exige `Idempotency-Key`.
+- Despacho automático, aceitação de ofertas e pagamento continuam pendentes.
+- IDs usam CUID conforme o schema Prisma atual.
