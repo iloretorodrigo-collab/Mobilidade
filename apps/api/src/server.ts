@@ -190,7 +190,8 @@ app.post("/mobility/estimate", {
     }
 
     const routeUrl = new URL(`https://router.project-osrm.org/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}`);
-    routeUrl.searchParams.set("overview", "full");\n    routeUrl.searchParams.set("geometries", "geojson");
+    routeUrl.searchParams.set("overview", "full");
+    routeUrl.searchParams.set("geometries", "geojson");
     routeUrl.searchParams.set("alternatives", "false");
     routeUrl.searchParams.set("steps", "false");
     const response = await fetch(routeUrl, { signal: AbortSignal.timeout(10000) });
@@ -218,7 +219,8 @@ app.post("/mobility/estimate", {
       origin,
       destination,
       distanceKm: Number(distanceKm.toFixed(2)),
-      durationMinutes: Math.max(1, Math.round(durationMinutes)),\n      routeCoordinates: route.geometry?.coordinates ?? [],
+      durationMinutes: Math.max(1, Math.round(durationMinutes)),
+      routeCoordinates: route.geometry?.coordinates ?? [],
       estimatedFareCents,
       estimatedFare: Number((estimatedFareCents / 100).toFixed(2)),
       currency: "BRL",
