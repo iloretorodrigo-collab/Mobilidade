@@ -10,11 +10,12 @@ const TOKEN_KEY = "mobilidade.passenger.token";
 const C = { ink: "#14211D", muted: "#6B7771", green: "#167A55", lime: "#D7FA75", paper: "#F5F7F3", white: "#FFFFFF", line: "#E2E8E1", red: "#B42318" };
 
 export default function App() {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [resetCode, setResetCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -39,11 +40,21 @@ export default function App() {
 
   async function submit() {
     setError(""); setNotice("");
-    if (mode === "register" && name.trim().length < 2) return setError("Informe seu nome completo.");
     if (!email.trim() || !email.includes("@")) return setError("Informe um e-mail válido.");
-    if (password.length < 8) return setError("A senha deve ter pelo menos 8 caracteres.");
+    if (mode === "register" && name.trim().length < 2) return setError("Informe seu nome completo.");
+    if (mode !== "forgot" && password.length < 8) return setError("A senha deve ter pelo menos 8 caracteres.");
     setSubmitting(true);
     try {
+      if (mode === "forgot") {
+        if (!resetCode) {
+          const result = await authApi.forgotPassword(email.trim().toLowerCase());
+          setNotice(result.developmentCode ? "Código de desenvolvimento: " + result.developmentCode : result.message);
+        } else {
+          await authApi.resetPassword(email.trim().toLowerCase(), resetCode, password);
+          setMode("login"); setResetCode(""); setPassword(""); setNotice("Senha redefinida. Entre com a nova senha.");
+        }
+        return;
+      }
       const result = mode === "register"
         ? await authApi.register({ name: name.trim(), email: email.trim().toLowerCase(), phone: phone.trim() || undefined, password, role: "passenger" })
         : await authApi.login({ email: email.trim().toLowerCase(), password });
@@ -103,18 +114,18 @@ export default function App() {
               <Pressable style={[s.tab,mode==="login"&&s.tabActive]} onPress={()=>{setMode("login");setError("");setNotice("");}}><Text style={[s.tabText,mode==="login"&&s.tabTextActive]}>Entrar</Text></Pressable>
               <Pressable style={[s.tab,mode==="register"&&s.tabActive]} onPress={()=>{setMode("register");setError("");setNotice("");}}><Text style={[s.tabText,mode==="register"&&s.tabTextActive]}>Criar conta</Text></Pressable>
             </View>
-            <Text style={s.formTitle}>{mode==="login"?"Que bom ter você de volta":"Vamos nessa?"}</Text>
+            <Text style={s.formTitle}>{mode==="forgot"?"Recuperar senha":mode==="login"?"Que bom ter você de volta":"Vamos nessa?"}</Text>
             <Text style={s.formSubtitle}>{mode==="login"?"Entre para continuar sua jornada.":"Crie sua conta de passageiro em poucos passos."}</Text>
             {mode==="register" && <Field label="NOME COMPLETO" value={name} onChangeText={setName} placeholder="Como podemos te chamar?" autoCapitalize="words"/>}
             <Field label="E-MAIL" value={email} onChangeText={setEmail} placeholder="voce@exemplo.com" keyboardType="email-address" autoCapitalize="none"/>
             {mode==="register" && <Field label="TELEFONE (OPCIONAL)" value={phone} onChangeText={setPhone} placeholder="+55 (11) 99999-9999" keyboardType="phone-pad"/>}
-            <Text style={s.fieldLabel}>SENHA</Text>
-            <View style={s.passwordRow}><TextInput style={s.passwordInput} value={password} onChangeText={setPassword} placeholder="Mínimo de 8 caracteres" placeholderTextColor="#9AA59E" secureTextEntry={!showPassword} autoCapitalize="none" autoCorrect={false}/><Pressable onPress={()=>setShowPassword(!showPassword)}><Text style={s.showText}>{showPassword?"Ocultar":"Mostrar"}</Text></Pressable></View>
+            {mode==="forgot" && <Field label="CÓDIGO DE RECUPERAÇÃO" value={resetCode} onChangeText={setResetCode} placeholder="Código de 6 dígitos" keyboardType="phone-pad"/>}\n            {mode!=="forgot" || !!resetCode ? <><Text style={s.fieldLabel}>{mode==="forgot"?"NOVA SENHA":"SENHA"}</Text>
+            <View style={s.passwordRow}><TextInput style={s.passwordInput} value={password} onChangeText={setPassword} placeholder="Mínimo de 8 caracteres" placeholderTextColor="#9AA59E" secureTextEntry={!showPassword} autoCapitalize="none" autoCorrect={false}/><Pressable onPress={()=>setShowPassword(!showPassword)}><Text style={s.showText}>{showPassword?"Ocultar":"Mostrar"}</Text></Pressable></View></> : null}
             {mode==="register" && <Text style={s.hint}>Use pelo menos 8 caracteres.</Text>}
             {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
             {!!notice && <Text style={s.notice}>{notice}</Text>}
-            <Pressable style={[s.primaryButton,submitting&&{opacity:0.7}]} onPress={submit} disabled={submitting}>
-              {submitting?<ActivityIndicator color={C.ink}/>:<Text style={s.primaryText}>{mode==="login"?"Entrar na minha conta":"Criar conta grátis"} <Text style={{fontSize:20}}>→</Text></Text>}
+            {mode==="login" && <Pressable onPress={()=>{setMode("forgot");setError("");setNotice("");setResetCode("");}}><Text style={s.link}>Esqueci minha senha</Text></Pressable>}\n            <Pressable style={[s.primaryButton,submitting&&{opacity:0.7}]} onPress={submit} disabled={submitting}>
+              {submitting?<ActivityIndicator color={C.ink}/>:<Text style={s.primaryText}>{mode==="forgot"?(resetCode?"Redefinir senha":"Enviar código"):mode==="login"?"Entrar na minha conta":"Criar conta grátis"} <Text style={{fontSize:20}}>→</Text></Text>}
             </Pressable>
             <Text style={s.terms}>Ao continuar, você concorda com nossos termos de uso e política de privacidade.</Text>
             <Text style={s.apiNote}>API: {API_URL}</Text>
