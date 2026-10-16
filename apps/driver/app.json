@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Mobilidade Motorista",
+    "slug": "mobilidade-motorista",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "mobilidade-motorista",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "br.com.mobilidade.driver"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}
