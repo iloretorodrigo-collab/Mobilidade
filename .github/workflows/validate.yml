@@ -38,7 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
+      - run: npm install --no-audit --no-fund
       - run: npm run db:generate
       - run: npm run db:push
       - run: npm run db:seed-admin
@@ -48,6 +48,14 @@ jobs:
       - run: npm run build:api
       - run: npm run build:passenger
       - run: npm run build:driver
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobilidade-android-bundles
+          path: |
+            apps/passenger/dist/**
+            apps/driver/dist/**
+          if-no-files-found: error
+          retention-days: 14
       - name: Start API
         run: |
           npm run dev:api > /tmp/mobilidade-api.log 2>&1 &
