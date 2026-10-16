@@ -40,6 +40,7 @@ model User {
   driverProfile  DriverProfile?
   passengerRides Ride[]         @relation("PassengerRides")
   driverRides    Ride[]         @relation("DriverRides")
+  tripQuotes     TripQuote[]
 }
 
 model DriverProfile {
@@ -68,6 +69,9 @@ model Ride {
   destinationLatitude  Float
   destinationLongitude Float
   estimatedFareCents   Int?
+  quoteId              String?    @unique
+  idempotencyKey       String?    @unique
+  quote                TripQuote? @relation(fields: [quoteId], references: [id])
   finalFareCents       Int?
   requestedAt          DateTime   @default(now())
   acceptedAt           DateTime?
@@ -79,4 +83,25 @@ model Ride {
   @@index([passengerId, requestedAt])
   @@index([driverId, status])
   @@index([status, requestedAt])
+}
+
+model TripQuote {
+  id                    String   @id @default(cuid())
+  passengerId           String
+  originLatitude        Float
+  originLongitude       Float
+  destinationLatitude   Float
+  destinationLongitude  Float
+  distanceMeters        Int
+  durationSeconds       Int
+  estimatedFareCents    Int
+  fareRuleVersion       String   @default("mvp-v1")
+  expiresAt             DateTime
+  usedAt                DateTime?
+  createdAt             DateTime @default(now())
+  passenger             User     @relation(fields: [passengerId], references: [id], onDelete: Cascade)
+  ride                  Ride?
+
+  @@index([passengerId, createdAt])
+  @@index([expiresAt, usedAt])
 }
