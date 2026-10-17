@@ -16,7 +16,8 @@ if (!jwtSecret || jwtSecret.length < 32) {
 
 const prisma = new PrismaClient();
 const app = Fastify({ logger: true, bodyLimit: 16_384 });
-const const port = Number(process.env.API_PORT ?? 3333);
+const io = new SocketIOServer(app.server, { path: "/realtime/socket.io", cors: { origin: process.env.CORS_ORIGIN?.split(",") ?? false } });
+const port = Number(process.env.API_PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 
 await app.register(cors, {
@@ -477,7 +478,6 @@ app.get("/api/v1/trips/:tripId", { preHandler: requireAuth }, async (request, re
   return reply.send({ data: { tripId: ride.id, status: apiRideStatus(ride.status), estimatedFareCents: ride.estimatedFareCents, finalFareCents: ride.finalFareCents, currency: "BRL", createdAt: ride.requestedAt.toISOString() } });
 });
 
-io = new SocketIOServer(app.server, { path: "/realtime/socket.io", cors: { origin: process.env.CORS_ORIGIN?.split(",") ?? false } });
 io.use((socket, next) => { try { const token = socket.handshake.auth?.token; if (typeof token !== "string") return next(new Error("UNAUTHENTICATED")); socket.data.user = app.jwt.verify(token) as JwtUser; next(); } catch { next(new Error("UNAUTHENTICATED")); } });
 io.on("connection", (socket) => {
   const user = socket.data.user as JwtUser;
