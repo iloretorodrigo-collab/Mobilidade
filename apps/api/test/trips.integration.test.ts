@@ -13,6 +13,7 @@ let passengerToken = "";
 let driverIds: string[] = [];
 let driverTokens: string[] = [];
 let tripId = "";
+const tripIds: string[] = [];
 let passengerSocket: Socket | undefined;
 let driverSocket: Socket | undefined;
 
@@ -47,7 +48,7 @@ before(async () => {
 after(async () => {
   passengerSocket?.disconnect();
   driverSocket?.disconnect();
-  if (tripId) await prisma.ride.deleteMany({ where: { id: tripId } });
+  if (tripIds.length) await prisma.ride.deleteMany({ where: { id: { in: tripIds } } });
   if (passengerId) {
     await prisma.tripQuote.deleteMany({ where: { passengerId } });
     await prisma.user.deleteMany({ where: { id: passengerId } });
@@ -83,6 +84,7 @@ test("cotação → solicitação idempotente → consulta → aceite único →
   });
   assert.equal(tripResponse.statusCode, 201, tripResponse.body);
   tripId = tripResponse.json().data.tripId;
+  tripIds.push(tripId);
 
   const duplicateResponse = await app.inject({
     method: "POST",
@@ -130,4 +132,57 @@ test("cotação → solicitação idempotente → consulta → aceite único →
   const event = await locationEvent;
   assert.equal(event.data.tripId, tripId);
   assert.equal(event.data.latitude, -30.03);
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/v1/trips/" + tripId + "/start",
+    headers: { authorization: "Bearer " + winningToken, "content-type": "application/json" },
+    payload: {},
+  });
+  assert.equal(startResponse.statusCode, 200, startResponse.body);
+  assert.equal(startResponse.json().data.status, "in_progress");
+
+  const completeResponse = await app.inject({
+    method: "POST",
+    url: "/api/v1/trips/" + tripId + "/complete",
+    headers: { authorization: "Bearer " + winningToken, "content-type": "application/json" },
+    payload: {},
+  });
+  assert.equal(completeResponse.statusCode, 200, completeResponse.body);
+  assert.equal(completeResponse.json().data.status, "completed");
+  assert.ok(completeResponse.json().data.finalFareCents > 0);
+
+  const cancelQuoteResponse = await app.inject({
+    method: "POST",
+    url: "/api/v1/quotes",
+    headers,
+    payload: {
+      origin: { latitude: -30.0346, longitude: -51.2177 },
+      destination: { latitude: -30.02, longitude: -51.21 },
+      category: "standard",
+    },
+  });
+  assert.equal(cancelQuoteResponse.statusCode, 200, cancelQuoteResponse.body);
+  const cancelTripResponse = await app.inject({
+    method: "POST",
+    url: "/api/v1/trips",
+    headers: { ...headers, "idempotency-key": "cancel-integration-" + Date.now() },
+    payload: { quoteId: cancelQuoteResponse.json().data.quoteId },
+  });
+  assert.equal(cancelTripResponse.statusCode, 201, cancelTripResponse.body);
+  const cancelTripId = cancelTripResponse.json().data.tripId as string;
+  tripIds.push(cancelTripId);
+
+  const cancelResponse = await app.inject({
+    method: "POST",
+    url: "/api/v1/trips/" + cancelTripId + "/cancel",
+    headers,
+    payload: { reason: "integration test" },
+  });
+  assert.equal(cancelResponse.statusCode, 200, cancelResponse.body);
+  assert.equal(cancelResponse.json().data.status, "cancelled");
+
+  const persistedEvents = await prisma.outboxEvent.findMany({ where: { aggregateType: "Ride", aggregateId: tripId } });
+  assert.equal(persistedEvents.length, 2);
+  assert.deepEqual(persistedEvents.map((item) => item.eventType), ["trip.status_changed", "trip.status_changed"]);
 });
