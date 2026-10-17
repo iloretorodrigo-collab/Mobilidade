@@ -5,6 +5,7 @@ import rateLimit from "@fastify/rate-limit";
 import { Prisma, PrismaClient, UserRole, RideStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { autocompleteGooglePlaces, computeGoogleRoute } from "./google-maps.js";
 
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret || jwtSecret.length < 32) {
