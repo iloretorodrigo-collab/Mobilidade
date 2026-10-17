@@ -353,12 +353,20 @@ app.post("/api/v1/quotes", { preHandler: requireAuth }, async (request, reply) =
   const parsed = quoteRequestSchema.safeParse(request.body);
   if (!parsed.success) return reply.code(400).send({ error: "Dados da cotação inválidos.", details: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.message })) });
   const { origin, destination, waypoints } = parsed.data;
-  if (waypoints.length > 0) return reply.code(422).send({ error: "Paradas intermediárias ainda não estão disponíveis no estimador MVP." });
-  const directDistanceMeters = estimateDirectDistanceMeters(origin, destination);
-  const roadFactor = finiteEnv("VIAE_MVP_ROAD_DISTANCE_FACTOR", 1.3, 1);
-  const distanceMeters = Math.round(directDistanceMeters * roadFactor);
-  const averageSpeedKmh = finiteEnv("VIAE_MVP_AVERAGE_SPEED_KMH", 25, 5);
-  const durationSeconds = Math.max(60, Math.ceil(distanceMeters / 1000 / averageSpeedKmh * 3600));
+  let route: { distanceMeters: number; durationSeconds: number; encodedPolyline?: string } | null = null;
+  try { route = await computeGoogleRoute(origin, destination, waypoints); }
+  catch (error) { request.log.warn({ err: error }, "Google Routes failed while generating quote"); return reply.code(502).send({ error: "MAPS_PROVIDER_UNAVAILABLE" }); }
+  let distanceMeters: number;
+  let durationSeconds: number;
+  if (route) { distanceMeters = route.distanceMeters; durationSeconds = route.durationSeconds; }
+  else {
+    if (waypoints.length > 0) return reply.code(503).send({ error: "GOOGLE_MAPS_NOT_CONFIGURED" });
+    const directDistanceMeters = estimateDirectDistanceMeters(origin, destination);
+    const roadFactor = finiteEnv("VIAE_MVP_ROAD_DISTANCE_FACTOR", 1.3, 1);
+    distanceMeters = Math.round(directDistanceMeters * roadFactor);
+    const averageSpeedKmh = finiteEnv("VIAE_MVP_AVERAGE_SPEED_KMH", 25, 5);
+    durationSeconds = Math.max(60, Math.ceil(distanceMeters / 1000 / averageSpeedKmh * 3600));
+  }
   const fare = estimateMvpFare(distanceMeters, durationSeconds);
   const quote = await prisma.tripQuote.create({ data: {
     passengerId: request.user.sub,
@@ -373,7 +381,8 @@ app.post("/api/v1/quotes", { preHandler: requireAuth }, async (request, reply) =
     estimatedDurationSeconds: quote.durationSeconds,
     estimatedFareCents: quote.estimatedFareCents,
     fareBreakdown: { baseFareCents: fare.baseFareCents, distanceFareCents: fare.distanceFareCents, timeFareCents: fare.timeFareCents, feesCents: 0, discountCents: 0 },
-    fareSource: "mvp_straight_line_approximation",
+    fareSource: route ? "google_routes" : "mvp_straight_line_approximation",
+    ...(route?.encodedPolyline ? { encodedPolyline: route.encodedPolyline } : {}),
     expiresAt: quote.expiresAt.toISOString(),
   }});
 });
