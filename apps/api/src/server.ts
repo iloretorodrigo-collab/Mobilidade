@@ -457,14 +457,23 @@ app.put("/api/v1/drivers/me/availability", { preHandler: requireAuth }, async (r
 app.post("/api/v1/trips/:tripId/accept", { preHandler: requireAuth }, async (request, reply) => {
   if (request.user.role !== "DRIVER") return reply.code(403).send({ error: "DRIVER_ONLY" });
   const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
-  if (!params.success) return reply.code(400).send({ error: "INVALID_TRIP_ID" });
+  const body = z.object({ offerId: z.string().min(1).max(64) }).safeParse(request.body);
+  if (!params.success || !body.success) return reply.code(400).send({ error: "INVALID_ACCEPT_REQUEST" });
   const profile = await prisma.driverProfile.findUnique({ where: { userId: request.user.sub } });
   if (!profile || profile.approvalStatus !== "APPROVED" || !profile.isOnline) return reply.code(403).send({ error: "DRIVER_NOT_ELIGIBLE" });
   const current = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
   if (!current) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
   if (current.driverId === request.user.sub && current.status === "ACCEPTED") return reply.send({ data: { tripId: current.id, status: "accepted" } });
-  const result = await prisma.ride.updateMany({ where: { id: current.id, status: "REQUESTED", driverId: null }, data: { driverId: request.user.sub, status: "ACCEPTED", acceptedAt: new Date() } });
-  if (result.count !== 1) return reply.code(409).send({ error: "TRIP_ALREADY_ASSIGNED" });
+  const offer = await prisma.driverOffer.findFirst({ where: { id: body.data.offerId, rideId: current.id, driverId: request.user.sub, acceptedAt: null, expiresAt: { gt: new Date() } } });
+  if (!offer) return reply.code(409).send({ error: "OFFER_EXPIRED_OR_INVALID" });
+  const accepted = await prisma.$transaction(async (tx) => {
+    const result = await tx.ride.updateMany({ where: { id: current.id, status: "REQUESTED", driverId: null }, data: { driverId: request.user.sub, status: "ACCEPTED", acceptedAt: new Date() } });
+    if (result.count !== 1) return false;
+    await tx.driverOffer.update({ where: { id: offer.id }, data: { acceptedAt: new Date() } });
+    await tx.driverOffer.updateMany({ where: { rideId: current.id, id: { not: offer.id }, acceptedAt: null }, data: { expiresAt: new Date() } });
+    return true;
+  });
+  if (!accepted) return reply.code(409).send({ error: "TRIP_ALREADY_ASSIGNED" });
   const assigned = await prisma.ride.findUniqueOrThrow({ where: { id: current.id } });
   const event = { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { tripId: assigned.id, previousStatus: "requested", status: "accepted", driverId: request.user.sub } };
   io.to("trip:" + assigned.id).emit("trip.status_changed", event);
