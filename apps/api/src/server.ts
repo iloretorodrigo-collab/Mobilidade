@@ -16,8 +16,7 @@ if (!jwtSecret || jwtSecret.length < 32) {
 
 const prisma = new PrismaClient();
 const app = Fastify({ logger: true, bodyLimit: 16_384 });
-let io: SocketIOServer;
-const port = Number(process.env.API_PORT ?? 3333);
+const const port = Number(process.env.API_PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 
 await app.register(cors, {
