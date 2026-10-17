@@ -531,11 +531,11 @@ app.post("/api/v1/trips/:tripId/cancel", { preHandler: requireAuth }, async (req
     const result = await tx.ride.updateMany({ where: { id: ride.id, status: ride.status }, data: { status: "CANCELLED" } });
     if (result.count !== 1) return false;
     await tx.driverOffer.updateMany({ where: { rideId: ride.id, acceptedAt: null }, data: { expiresAt: now } });
-    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: ride.id, eventType: "trip.status_changed", payload: { tripId: ride.id, previousStatus: apiRideStatus(ride.status), status: "cancelled", reason: body.data.reason ?? null, cancelledBy: request.user.sub, occurredAt: now.toISOString() } } });
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: ride.id, eventType: "trip.status_changed", payload: { tripId: ride.id, previousStatus: apiRideStatus(ride.status), status: "canceled", reason: body.data.reason ?? null, cancelledBy: request.user.sub, occurredAt: now.toISOString() } } });
     return true;
   });
   if (!changed) return reply.code(409).send({ error: "TRIP_STATE_CONFLICT" });
-  return reply.send({ data: { tripId: ride.id, status: "cancelled", cancelledAt: now.toISOString() } });
+  return reply.send({ data: { tripId: ride.id, status: "canceled", cancelledAt: now.toISOString() } });
 });
 app.get("/api/v1/trips/:tripId", { preHandler: requireAuth }, async (request, reply) => {
   const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
