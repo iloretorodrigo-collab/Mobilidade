@@ -498,10 +498,14 @@ io.on("connection", (socket) => {
   });
 });
 
-try {
-  await app.listen({ port, host });
-} catch (error) {
-  app.log.error(error);
-  await prisma.$disconnect();
-  process.exit(1);
+export { app, prisma };
+
+if (process.env.NODE_ENV !== "test") {
+  try {
+    await app.listen({ port, host });
+  } catch (error) {
+    app.log.error(error);
+    await prisma.$disconnect();
+    process.exit(1);
+  }
 }
