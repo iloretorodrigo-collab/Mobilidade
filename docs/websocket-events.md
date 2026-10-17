@@ -1,6 +1,6 @@
 # VIAÊ — Contratos WebSocket
 
-**Status:** Socket.IO foi integrado ao servidor para autenticação JWT, inscrição autorizada em sala de corrida, ofertas de motorista e atualização de localização. Mensagens, alertas de segurança, ETA e outbox ainda são planejados. Os exemplos usam dados fictícios.
+**Status:** Socket.IO foi integrado ao servidor para autenticação JWT, inscrição autorizada em sala de corrida, ofertas de motorista e atualização de localização. Os eventos de estado da corrida são gravados em outbox transacional e publicados pelo processo periódico; mensagens, alertas de segurança e ETA ainda são planejados. Os exemplos usam dados fictícios.
 
 ## Transporte e autenticação
 
@@ -87,7 +87,7 @@ Códigos sugeridos: `UNAUTHENTICATED`, `FORBIDDEN`, `INVALID_PAYLOAD`, `RATE_LIM
 5. Eventos críticos devem ser persistidos no backend e publicados por outbox transacional; não confiar apenas na entrega WebSocket.
 6. Localização só é distribuída durante a finalidade operacional autorizada e respeitando retenção e privacidade definidas pela VIAÊ.
 
-## Metas operacionais iniciais
+## Outbox e entrega\n\n- Transições de aceite, início, conclusão e cancelamento gravam `OutboxEvent` na mesma transação da mudança de estado.\n- O publicador reivindica lotes usando `FOR UPDATE SKIP LOCKED` e marca os eventos publicados após emitir para a sala da corrida.\n- A entrega é pelo menos uma vez; consumidores devem deduplicar por `eventId`.\n- Monitorar eventos antigos não publicados e falhas do processo em produção.\n\n## Metas operacionais iniciais
 
 - Reconexão testada em troca de rede e suspensão do app.
 - Rate limit para localização e mensagens.
