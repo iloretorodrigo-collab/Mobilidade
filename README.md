@@ -15,7 +15,12 @@ Plataforma de mobilidade urbana conectando passageiros e motoristas. Este reposi
 - Campos iniciais para perfil do motorista e veículo.
 - PostgreSQL + Prisma para persistência.
 - Limitação de requisições nas rotas de autenticação.
-- Workflow inicial de CI.
+- Cotação e solicitação idempotente de corridas.
+- Integração opcional com Google Routes e Places API via `GOOGLE_MAPS_API_KEY`.
+- Despacho com ofertas expiradas e aceite atômico.
+- Ciclo de corrida com início, conclusão e cancelamento.
+- Eventos de estado persistidos em outbox e publicados via Socket.IO.
+- Migração PostgreSQL versionada e CI com testes de integração.
 
 ## Rodar localmente
 
@@ -31,7 +36,7 @@ Edite `.env` e configure `JWT_SECRET` com um segredo aleatório de pelo menos 32
 ```bash
 npm install
 npm run db:generate
-npm run db:push
+npm run db:migrate --workspace @mobilidade/database
 npm run dev:api
 ```
 
