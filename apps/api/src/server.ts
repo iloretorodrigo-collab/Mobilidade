@@ -480,6 +480,70 @@ app.post("/api/v1/trips/:tripId/accept", { preHandler: requireAuth }, async (req
   io.to("trip:" + assigned.id).emit("trip.driver_assigned", { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { tripId: assigned.id, driverId: request.user.sub } });
   return reply.send({ data: { tripId: assigned.id, status: "accepted" } });
 });
+app.post("/api/v1/trips/:tripId/start", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "DRIVER" && request.user.role !== "ADMIN") return reply.code(403).send({ error: "DRIVER_ONLY" });
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  if (!params.success) return reply.code(400).send({ error: "INVALID_TRIP_ID" });
+  const ride = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!ride) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
+  if (request.user.role !== "ADMIN" && ride.driverId !== request.user.sub) return reply.code(403).send({ error: "FORBIDDEN" });
+  const now = new Date();
+  const changed = await prisma.$transaction(async (tx) => {
+    const result = await tx.ride.updateMany({ where: { id: ride.id, status: "ACCEPTED", driverId: ride.driverId }, data: { status: "IN_PROGRESS", startedAt: now } });
+    if (result.count !== 1) return false;
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: ride.id, eventType: "trip.status_changed", payload: { tripId: ride.id, previousStatus: "accepted", status: "in_progress", occurredAt: now.toISOString() } } });
+    return true;
+  });
+  if (!changed) return reply.code(409).send({ error: "INVALID_TRIP_STATE", message: "Somente corridas aceitas podem ser iniciadas." });
+  const event = { eventId: randomUUID(), occurredAt: now.toISOString(), data: { tripId: ride.id, previousStatus: "accepted", status: "in_progress" } };
+  io.to("trip:" + ride.id).emit("trip.status_changed", event);
+  return reply.send({ data: { tripId: ride.id, status: "in_progress", startedAt: now.toISOString() } });
+});
+
+app.post("/api/v1/trips/:tripId/complete", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "DRIVER" && request.user.role !== "ADMIN") return reply.code(403).send({ error: "DRIVER_ONLY" });
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  if (!params.success) return reply.code(400).send({ error: "INVALID_TRIP_ID" });
+  const ride = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!ride) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
+  if (request.user.role !== "ADMIN" && ride.driverId !== request.user.sub) return reply.code(403).send({ error: "FORBIDDEN" });
+  const now = new Date();
+  const finalFareCents = ride.estimatedFareCents ?? 0;
+  const changed = await prisma.$transaction(async (tx) => {
+    const result = await tx.ride.updateMany({ where: { id: ride.id, status: "IN_PROGRESS", driverId: ride.driverId }, data: { status: "COMPLETED", completedAt: now, finalFareCents } });
+    if (result.count !== 1) return false;
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: ride.id, eventType: "trip.status_changed", payload: { tripId: ride.id, previousStatus: "in_progress", status: "completed", finalFareCents, occurredAt: now.toISOString() } } });
+    return true;
+  });
+  if (!changed) return reply.code(409).send({ error: "INVALID_TRIP_STATE", message: "Somente corridas em andamento podem ser concluídas." });
+  const event = { eventId: randomUUID(), occurredAt: now.toISOString(), data: { tripId: ride.id, previousStatus: "in_progress", status: "completed", finalFareCents } };
+  io.to("trip:" + ride.id).emit("trip.status_changed", event);
+  return reply.send({ data: { tripId: ride.id, status: "completed", finalFareCents, currency: "BRL", completedAt: now.toISOString() } });
+});
+
+app.post("/api/v1/trips/:tripId/cancel", { preHandler: requireAuth }, async (request, reply) => {
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  const body = z.object({ reason: z.string().trim().max(300).optional() }).safeParse(request.body ?? {});
+  if (!params.success || !body.success) return reply.code(400).send({ error: "INVALID_CANCEL_REQUEST" });
+  const ride = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!ride) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
+  const allowedPassenger = request.user.role === "PASSENGER" && ride.passengerId === request.user.sub && ["REQUESTED", "ACCEPTED"].includes(ride.status);
+  const allowedDriver = request.user.role === "DRIVER" && ride.driverId === request.user.sub && ["ACCEPTED", "DRIVER_ARRIVING"].includes(ride.status);
+  const allowedAdmin = request.user.role === "ADMIN" && !["COMPLETED", "CANCELLED"].includes(ride.status);
+  if (!allowedPassenger && !allowedDriver && !allowedAdmin) return reply.code(403).send({ error: "CANCELLATION_NOT_ALLOWED" });
+  const now = new Date();
+  const changed = await prisma.$transaction(async (tx) => {
+    const result = await tx.ride.updateMany({ where: { id: ride.id, status: ride.status }, data: { status: "CANCELLED" } });
+    if (result.count !== 1) return false;
+    await tx.driverOffer.updateMany({ where: { rideId: ride.id, acceptedAt: null }, data: { expiresAt: now } });
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: ride.id, eventType: "trip.status_changed", payload: { tripId: ride.id, previousStatus: apiRideStatus(ride.status), status: "cancelled", reason: body.data.reason ?? null, cancelledBy: request.user.sub, occurredAt: now.toISOString() } } });
+    return true;
+  });
+  if (!changed) return reply.code(409).send({ error: "TRIP_STATE_CONFLICT" });
+  const event = { eventId: randomUUID(), occurredAt: now.toISOString(), data: { tripId: ride.id, previousStatus: apiRideStatus(ride.status), status: "cancelled", reason: body.data.reason ?? null } };
+  io.to("trip:" + ride.id).emit("trip.status_changed", event);
+  return reply.send({ data: { tripId: ride.id, status: "cancelled", cancelledAt: now.toISOString() } });
+});
 app.get("/api/v1/trips/:tripId", { preHandler: requireAuth }, async (request, reply) => {
   const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
   if (!params.success) return reply.code(400).send({ error: "Identificador de corrida inválido." });
