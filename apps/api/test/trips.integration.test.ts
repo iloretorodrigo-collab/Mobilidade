@@ -183,6 +183,6 @@ test("cotação → solicitação idempotente → consulta → aceite único →
   assert.equal(cancelResponse.json().data.status, "cancelled");
 
   const persistedEvents = await prisma.outboxEvent.findMany({ where: { aggregateType: "Ride", aggregateId: tripId } });
-  assert.equal(persistedEvents.length, 2);
+  assert.equal(persistedEvents.length, 3);
   assert.deepEqual(persistedEvents.map((item) => item.eventType), ["trip.status_changed", "trip.status_changed"]);
 });
