@@ -1,6 +1,6 @@
 # VIAÊ — Máquina de estados da corrida
 
-**Status:** contrato de domínio proposto. Deve ser implementado e testado no backend antes de habilitar corridas reais.
+**Status:** parcialmente implementado e coberto por testes de integração. `requested → accepted → in_progress → completed` e cancelamento permitido estão implementados. `driver_arriving`, redispatch, tarifas por distância real e algumas transições operacionais continuam pendentes.
 
 ## Estados
 
@@ -10,7 +10,7 @@
 - `driver_arrived`: motorista informou chegada ao embarque.
 - `in_progress`: corrida iniciada.
 - `completed`: corrida finalizada.
-- `canceled`: corrida cancelada sob as regras aplicáveis.
+- `cancelled`: corrida cancelada sob as regras aplicáveis.
 
 ## Transições permitidas
 
@@ -20,9 +20,9 @@
 | requested | canceled | passageiro/sistema | Cancelamento permitido |
 | searching | accepted | sistema/atribuição | Oferta válida e atribuição atômica |
 | searching | canceled | passageiro/sistema | Busca cancelada; invalidar ofertas abertas |
-| accepted | driver_arrived | motorista atribuído | Motorista e corrida conferidos no servidor |
+| accepted | in_progress | motorista atribuído | Corrida aceita e atribuição conferida no servidor |
 | accepted | canceled | passageiro/motorista/suporte | Política de cancelamento aplicada |
-| driver_arrived | in_progress | motorista atribuído | Início permitido e registrado |
+| driver_arriving | in_progress | motorista atribuído | Início permitido e registrado |
 | driver_arrived | canceled | atores autorizados | Política de cancelamento aplicada |
 | in_progress | completed | motorista atribuído/sistema autorizado | Finalização validada; tarifa final e pagamento processados conforme política |
 
