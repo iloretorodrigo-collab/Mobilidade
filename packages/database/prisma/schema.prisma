@@ -41,6 +41,7 @@ model User {
   passengerRides Ride[]         @relation("PassengerRides")
   driverRides    Ride[]         @relation("DriverRides")
   tripQuotes     TripQuote[]
+  driverOffers   DriverOffer[]
 }
 
 model DriverProfile {
@@ -72,6 +73,7 @@ model Ride {
   quoteId              String?    @unique
   idempotencyKey       String?    @unique
   quote                TripQuote? @relation(fields: [quoteId], references: [id])
+  offers               DriverOffer[]
   finalFareCents       Int?
   requestedAt          DateTime   @default(now())
   acceptedAt           DateTime?
@@ -104,4 +106,19 @@ model TripQuote {
 
   @@index([passengerId, createdAt])
   @@index([expiresAt, usedAt])
+}
+
+model DriverOffer {
+  id         String   @id @default(cuid())
+  rideId     String
+  driverId   String
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime @default(now())
+  ride       Ride     @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  driver     User     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@unique([rideId, driverId])
+  @@index([driverId, expiresAt])
+  @@index([rideId, expiresAt])
 }
