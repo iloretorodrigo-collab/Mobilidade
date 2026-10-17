@@ -334,7 +334,20 @@ app.patch("/profiles/driver", { preHandler: requireAuth }, async (request, reply
 });
 
 
-/** MVP quote approximation only; Google Routes API integration remains pending. */
+app.get("/api/v1/places/autocomplete", { preHandler: requireAuth }, async (request, reply) => {
+  const parsed = z.object({ input: z.string().trim().min(2).max(200), latitude: z.coerce.number().min(-90).max(90).optional(), longitude: z.coerce.number().min(-180).max(180).optional() }).safeParse(request.query);
+  if (!parsed.success) return reply.code(400).send({ error: "Parâmetros de pesquisa inválidos." });
+  try { return reply.send({ data: await autocompleteGooglePlaces(parsed.data.input, parsed.data.latitude, parsed.data.longitude) }); }
+  catch (error) { if (error instanceof Error && error.message === "GOOGLE_MAPS_NOT_CONFIGURED") return reply.code(503).send({ error: error.message }); request.log.warn({ err: error }, "Google Places request failed"); return reply.code(502).send({ error: "MAPS_PROVIDER_UNAVAILABLE" }); }
+});
+app.post("/api/v1/routes/estimate", { preHandler: requireAuth }, async (request, reply) => {
+  const parsed = z.object({ origin: coordinatesSchema, destination: coordinatesSchema, waypoints: z.array(coordinatesSchema).max(5).optional().default([]) }).safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "Dados da rota inválidos." });
+  try { const data = await computeGoogleRoute(parsed.data.origin, parsed.data.destination, parsed.data.waypoints); if (!data) return reply.code(503).send({ error: "GOOGLE_MAPS_NOT_CONFIGURED" }); return reply.send({ data }); }
+  catch (error) { request.log.warn({ err: error }, "Google Routes request failed"); return reply.code(502).send({ error: "MAPS_PROVIDER_UNAVAILABLE" }); }
+});
+
+/** MVP quote approximation only; Google Routes API is used when configured. */
 app.post("/api/v1/quotes", { preHandler: requireAuth }, async (request, reply) => {
   if (request.user.role !== "PASSENGER") return reply.code(403).send({ error: "Somente passageiros podem solicitar cotações." });
   const parsed = quoteRequestSchema.safeParse(request.body);
