@@ -15,7 +15,12 @@ Plataforma de mobilidade urbana conectando passageiros e motoristas. Este reposi
 - Campos iniciais para perfil do motorista e veículo.
 - PostgreSQL + Prisma para persistência.
 - Limitação de requisições nas rotas de autenticação.
-- Workflow inicial de CI.
+- Cotação e solicitação idempotente de corridas.
+- Integração opcional com Google Routes e Places API via `GOOGLE_MAPS_API_KEY`.
+- Despacho com ofertas expiradas e aceite atômico.
+- Ciclo de corrida com início, conclusão e cancelamento.
+- Eventos de estado persistidos em outbox e publicados via Socket.IO.
+- Migração PostgreSQL versionada e CI com testes de integração.
 
 ## Rodar localmente
 
@@ -31,7 +36,7 @@ Edite `.env` e configure `JWT_SECRET` com um segredo aleatório de pelo menos 32
 ```bash
 npm install
 npm run db:generate
-npm run db:push
+npm run db:migrate --workspace @mobilidade/database
 npm run dev:api
 ```
 
@@ -49,7 +54,7 @@ A API ficará disponível em `http://localhost:3333`. Teste `GET /health`.
 
 Para rotas protegidas, envie `Authorization: Bearer <token>`.
 
-Documentação detalhada: [API](apps/api/README.md) · [Autenticação](docs/authentication.md) · [Arquitetura](docs/architecture.md).
+Documentação detalhada: [API atual](apps/api/README.md) · [Autenticação](docs/authentication.md) · [Arquitetura](docs/architecture.md) · [Contrato OpenAPI](docs/openapi.yaml) · [Eventos WebSocket](docs/websocket-events.md) · [Estados da corrida](docs/trip-state-machine.md) · [Exemplos REST](docs/api-examples.md).
 
 ## Aplicativos móveis
 
@@ -57,6 +62,14 @@ Documentação detalhada: [API](apps/api/README.md) · [Autenticação](docs/aut
 - Motorista: `npm run dev:driver`
 
 Configure `EXPO_PUBLIC_API_URL` para o endereço da API acessível pelo dispositivo. No emulador Android use `http://10.0.2.2:3333`; em aparelho físico use o IP local do computador na rede Wi-Fi. Veja os detalhes em [app do passageiro](apps/passenger/README.md) e [app do motorista](apps/driver/README.md).
+
+## Contratos e primeiro fluxo MVP
+
+- Contrato OpenAPI: [docs/openapi.yaml](docs/openapi.yaml) — validação automática no CI.
+- Eventos WebSocket: [docs/websocket-events.md](docs/websocket-events.md).
+- Estados da corrida: [docs/trip-state-machine.md](docs/trip-state-machine.md).
+- Exemplos REST: [docs/api-examples.md](docs/api-examples.md).
+- MVP de cotação e solicitação de corrida: `POST /api/v1/quotes`, `POST /api/v1/trips` e `GET /api/v1/trips/:tripId`. A cotação ainda é aproximada e não usa Google Maps.
 
 ## Próximas etapas
 

@@ -2,9 +2,12 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
-import { Prisma, PrismaClient, UserRole } from "@prisma/client";
+import { Prisma, PrismaClient, UserRole, RideStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
+import { Server as SocketIOServer } from "socket.io";
+import { autocompleteGooglePlaces, computeGoogleRoute } from "./google-maps.js";
 
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret || jwtSecret.length < 32) {
@@ -13,6 +16,7 @@ if (!jwtSecret || jwtSecret.length < 32) {
 
 const prisma = new PrismaClient();
 const app = Fastify({ logger: true, bodyLimit: 16_384 });
+const io = new SocketIOServer(app.server, { path: "/realtime/socket.io", cors: { origin: process.env.CORS_ORIGIN?.split(",") ?? false } });
 const port = Number(process.env.API_PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 
@@ -60,6 +64,49 @@ const updateDriverProfileSchema = z.object({
 }).refine((value) => Object.keys(value).length > 0, {
   message: "Informe ao menos um campo para atualizar.",
 });
+
+
+const coordinatesSchema = z.object({
+  latitude: z.number().finite().min(-90).max(90),
+  longitude: z.number().finite().min(-180).max(180),
+});
+const quoteRequestSchema = z.object({
+  origin: coordinatesSchema,
+  destination: coordinatesSchema,
+  category: z.literal("standard"),
+  waypoints: z.array(coordinatesSchema).max(5).optional().default([]),
+});
+const createTripSchema = z.object({
+  quoteId: z.string().trim().min(1).max(64),
+  notes: z.string().max(500).optional(),
+  paymentMethodId: z.string().max(100).optional(),
+});
+function estimateDirectDistanceMeters(origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }): number {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const dLat = radians(destination.latitude - origin.latitude);
+  const dLon = radians(destination.longitude - origin.longitude);
+  const lat1 = radians(origin.latitude);
+  const lat2 = radians(destination.latitude);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return Math.round(6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+function finiteEnv(name: string, fallback: number, minimum = 0): number {
+  const parsed = Number(process.env[name] ?? fallback);
+  return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback;
+}
+function estimateMvpFare(distanceMeters: number, durationSeconds: number) {
+  const baseFareCents = finiteEnv("VIAE_FARE_BASE_CENTS", 500);
+  const centsPerKm = finiteEnv("VIAE_FARE_PER_KM_CENTS", 250);
+  const centsPerMinute = finiteEnv("VIAE_FARE_PER_MINUTE_CENTS", 30);
+  const minimumFareCents = finiteEnv("VIAE_FARE_MINIMUM_CENTS", 1000);
+  const distanceFareCents = Math.ceil(distanceMeters / 1000 * centsPerKm);
+  const timeFareCents = Math.ceil(durationSeconds / 60 * centsPerMinute);
+  return { baseFareCents, distanceFareCents, timeFareCents, feesCents: 0, discountCents: 0, totalCents: Math.max(minimumFareCents, baseFareCents + distanceFareCents + timeFareCents) };
+}
+function apiRideStatus(status: string): string {
+  const statuses: Record<string, string> = { REQUESTED: "requested", ACCEPTED: "accepted", DRIVER_ARRIVING: "driver_arrived", IN_PROGRESS: "in_progress", COMPLETED: "completed", CANCELLED: "canceled" };
+  return statuses[status] ?? "requested";
+}
 
 type JwtUser = { sub: string; role: "PASSENGER" | "DRIVER" | "ADMIN" };
 
@@ -289,10 +336,276 @@ app.patch("/profiles/driver", { preHandler: requireAuth }, async (request, reply
   }
 });
 
-try {
-  await app.listen({ port, host });
-} catch (error) {
-  app.log.error(error);
-  await prisma.$disconnect();
-  process.exit(1);
+
+app.get("/api/v1/places/autocomplete", { preHandler: requireAuth }, async (request, reply) => {
+  const parsed = z.object({ input: z.string().trim().min(2).max(200), latitude: z.coerce.number().min(-90).max(90).optional(), longitude: z.coerce.number().min(-180).max(180).optional() }).safeParse(request.query);
+  if (!parsed.success) return reply.code(400).send({ error: "Parâmetros de pesquisa inválidos." });
+  try { return reply.send({ data: await autocompleteGooglePlaces(parsed.data.input, parsed.data.latitude, parsed.data.longitude) }); }
+  catch (error) { if (error instanceof Error && error.message === "GOOGLE_MAPS_NOT_CONFIGURED") return reply.code(503).send({ error: error.message }); request.log.warn({ err: error }, "Google Places request failed"); return reply.code(502).send({ error: "MAPS_PROVIDER_UNAVAILABLE" }); }
+});
+app.post("/api/v1/routes/estimate", { preHandler: requireAuth }, async (request, reply) => {
+  const parsed = z.object({ origin: coordinatesSchema, destination: coordinatesSchema, waypoints: z.array(coordinatesSchema).max(5).optional().default([]) }).safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "Dados da rota inválidos." });
+  try { const data = await computeGoogleRoute(parsed.data.origin, parsed.data.destination, parsed.data.waypoints); if (!data) return reply.code(503).send({ error: "GOOGLE_MAPS_NOT_CONFIGURED" }); return reply.send({ data }); }
+  catch (error) { request.log.warn({ err: error }, "Google Routes request failed"); return reply.code(502).send({ error: "MAPS_PROVIDER_UNAVAILABLE" }); }
+});
+
+/** MVP quote approximation only; Google Routes API is used when configured. */
+app.post("/api/v1/quotes", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "PASSENGER") return reply.code(403).send({ error: "Somente passageiros podem solicitar cotações." });
+  const parsed = quoteRequestSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "Dados da cotação inválidos.", details: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.message })) });
+  const { origin, destination, waypoints } = parsed.data;
+  let route: { distanceMeters: number; durationSeconds: number; encodedPolyline?: string } | null = null;
+  try { route = await computeGoogleRoute(origin, destination, waypoints); }
+  catch (error) { request.log.warn({ err: error }, "Google Routes failed while generating quote"); return reply.code(502).send({ error: "MAPS_PROVIDER_UNAVAILABLE" }); }
+  let distanceMeters: number;
+  let durationSeconds: number;
+  if (route) { distanceMeters = route.distanceMeters; durationSeconds = route.durationSeconds; }
+  else {
+    if (waypoints.length > 0) return reply.code(503).send({ error: "GOOGLE_MAPS_NOT_CONFIGURED" });
+    const directDistanceMeters = estimateDirectDistanceMeters(origin, destination);
+    const roadFactor = finiteEnv("VIAE_MVP_ROAD_DISTANCE_FACTOR", 1.3, 1);
+    distanceMeters = Math.round(directDistanceMeters * roadFactor);
+    const averageSpeedKmh = finiteEnv("VIAE_MVP_AVERAGE_SPEED_KMH", 25, 5);
+    durationSeconds = Math.max(60, Math.ceil(distanceMeters / 1000 / averageSpeedKmh * 3600));
+  }
+  const fare = estimateMvpFare(distanceMeters, durationSeconds);
+  const quote = await prisma.tripQuote.create({ data: {
+    passengerId: request.user.sub,
+    originLatitude: origin.latitude, originLongitude: origin.longitude,
+    destinationLatitude: destination.latitude, destinationLongitude: destination.longitude,
+    distanceMeters, durationSeconds, estimatedFareCents: fare.totalCents,
+    expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+  }});
+  return reply.send({ data: {
+    quoteId: quote.id, currency: "BRL",
+    estimatedDistanceMeters: quote.distanceMeters,
+    estimatedDurationSeconds: quote.durationSeconds,
+    estimatedFareCents: quote.estimatedFareCents,
+    fareBreakdown: { baseFareCents: fare.baseFareCents, distanceFareCents: fare.distanceFareCents, timeFareCents: fare.timeFareCents, feesCents: 0, discountCents: 0 },
+    fareSource: route ? "google_routes" : "mvp_straight_line_approximation",
+    ...(route?.encodedPolyline ? { encodedPolyline: route.encodedPolyline } : {}),
+    expiresAt: quote.expiresAt.toISOString(),
+  }});
+});
+
+app.post("/api/v1/trips", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "PASSENGER") return reply.code(403).send({ error: "Somente passageiros podem solicitar corridas." });
+  const parsed = createTripSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "Dados da corrida inválidos.", details: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.message })) });
+  const idempotencyKey = request.headers["idempotency-key"];
+  if (typeof idempotencyKey !== "string" || idempotencyKey.length < 16 || idempotencyKey.length > 128) return reply.code(400).send({ error: "Informe Idempotency-Key com 16 a 128 caracteres." });
+
+  const existing = await prisma.ride.findUnique({ where: { idempotencyKey } });
+  if (existing) {
+    if (existing.passengerId !== request.user.sub || existing.quoteId !== parsed.data.quoteId) return reply.code(409).send({ error: "IDEMPOTENCY_CONFLICT", message: "A chave já foi usada em outra solicitação." });
+    return reply.code(200).send({ data: { tripId: existing.id, status: apiRideStatus(existing.status), estimatedFareCents: existing.estimatedFareCents, currency: "BRL", createdAt: existing.requestedAt.toISOString() } });
+  }
+
+  try {
+    const ride = await prisma.$transaction(async (tx) => {
+      const quote = await tx.tripQuote.findFirst({ where: { id: parsed.data.quoteId, passengerId: request.user.sub } });
+      if (!quote) throw new Error("QUOTE_NOT_FOUND");
+      if (quote.expiresAt <= new Date()) throw new Error("QUOTE_EXPIRED");
+      const reserved = await tx.tripQuote.updateMany({ where: { id: quote.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } });
+      if (reserved.count !== 1) throw new Error("QUOTE_ALREADY_USED");
+      return tx.ride.create({ data: {
+        passengerId: request.user.sub, quoteId: quote.id, idempotencyKey,
+        status: RideStatus.REQUESTED,
+        originLatitude: quote.originLatitude, originLongitude: quote.originLongitude,
+        destinationLatitude: quote.destinationLatitude, destinationLongitude: quote.destinationLongitude,
+        estimatedFareCents: quote.estimatedFareCents,
+      }});
+    });
+    const eligibleDrivers = await prisma.driverProfile.findMany({ where: { isOnline: true, approvalStatus: "APPROVED" }, select: { userId: true } });
+    for (const driver of eligibleDrivers) {
+      const expiresAt = new Date(Date.now() + 30_000);
+      const offer = await prisma.driverOffer.create({ data: { rideId: ride.id, driverId: driver.userId, expiresAt } });
+      io.to("driver:" + driver.userId).emit("driver.offer_created", { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { offerId: offer.id, tripId: ride.id, expiresAt: expiresAt.toISOString(), pickup: { latitude: ride.originLatitude, longitude: ride.originLongitude } } });
+    }
+    return reply.code(201).send({ data: { tripId: ride.id, status: "requested", estimatedFareCents: ride.estimatedFareCents, currency: "BRL", createdAt: ride.requestedAt.toISOString() } });
+  } catch (error) {
+    if (error instanceof Error && ["QUOTE_NOT_FOUND", "QUOTE_EXPIRED", "QUOTE_ALREADY_USED"].includes(error.message)) {
+      if (error.message === "QUOTE_ALREADY_USED") {
+        const retry = await prisma.ride.findUnique({ where: { idempotencyKey } });
+        if (retry && retry.passengerId === request.user.sub && retry.quoteId === parsed.data.quoteId) {
+          return reply.code(200).send({ data: { tripId: retry.id, status: apiRideStatus(retry.status), estimatedFareCents: retry.estimatedFareCents, currency: "BRL", createdAt: retry.requestedAt.toISOString() } });
+        }
+      }
+      return reply.code(error.message === "QUOTE_NOT_FOUND" ? 404 : 409).send({ error: error.message, message: "Não foi possível usar esta cotação." });
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const retry = await prisma.ride.findUnique({ where: { idempotencyKey } });
+      if (retry && retry.passengerId === request.user.sub && retry.quoteId === parsed.data.quoteId) return reply.code(200).send({ data: { tripId: retry.id, status: apiRideStatus(retry.status), estimatedFareCents: retry.estimatedFareCents, currency: "BRL", createdAt: retry.requestedAt.toISOString() } });
+      return reply.code(409).send({ error: "IDEMPOTENCY_CONFLICT", message: "A chave já foi usada em outra solicitação." });
+    }
+    request.log.error(error);
+    return reply.code(500).send({ error: "Não foi possível solicitar a corrida." });
+  }
+});
+
+app.put("/api/v1/drivers/me/availability", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "DRIVER") return reply.code(403).send({ error: "DRIVER_ONLY" });
+  const parsed = z.object({ available: z.boolean() }).safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "INVALID_AVAILABILITY" });
+  const profile = await prisma.driverProfile.findUnique({ where: { userId: request.user.sub } });
+  if (!profile || profile.approvalStatus !== "APPROVED") return reply.code(403).send({ error: "DRIVER_NOT_APPROVED" });
+  const updated = await prisma.driverProfile.update({ where: { userId: request.user.sub }, data: { isOnline: parsed.data.available } });
+  return reply.send({ data: { available: updated.isOnline } });
+});
+app.post("/api/v1/trips/:tripId/accept", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "DRIVER") return reply.code(403).send({ error: "DRIVER_ONLY" });
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  const body = z.object({ offerId: z.string().min(1).max(64) }).safeParse(request.body);
+  if (!params.success || !body.success) return reply.code(400).send({ error: "INVALID_ACCEPT_REQUEST" });
+  const profile = await prisma.driverProfile.findUnique({ where: { userId: request.user.sub } });
+  if (!profile || profile.approvalStatus !== "APPROVED" || !profile.isOnline) return reply.code(403).send({ error: "DRIVER_NOT_ELIGIBLE" });
+  const current = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!current) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
+  if (current.driverId === request.user.sub && current.status === "ACCEPTED") return reply.send({ data: { tripId: current.id, status: "accepted" } });
+  const offer = await prisma.driverOffer.findFirst({ where: { id: body.data.offerId, rideId: current.id, driverId: request.user.sub, acceptedAt: null, expiresAt: { gt: new Date() } } });
+  if (!offer) return reply.code(409).send({ error: "OFFER_EXPIRED_OR_INVALID" });
+  const accepted = await prisma.$transaction(async (tx) => {
+    const result = await tx.ride.updateMany({ where: { id: current.id, status: "REQUESTED", driverId: null }, data: { driverId: request.user.sub, status: "ACCEPTED", acceptedAt: new Date() } });
+    if (result.count !== 1) return false;
+    await tx.driverOffer.update({ where: { id: offer.id }, data: { acceptedAt: new Date() } });
+    await tx.driverOffer.updateMany({ where: { rideId: current.id, id: { not: offer.id }, acceptedAt: null }, data: { expiresAt: new Date() } });
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: current.id, eventType: "trip.status_changed", payload: { tripId: current.id, previousStatus: "requested", status: "accepted", driverId: request.user.sub, occurredAt: new Date().toISOString() } } });
+    return true;
+  });
+  if (!accepted) return reply.code(409).send({ error: "TRIP_ALREADY_ASSIGNED" });
+  const assigned = await prisma.ride.findUniqueOrThrow({ where: { id: current.id } });
+  io.to("trip:" + assigned.id).emit("trip.driver_assigned", { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { tripId: assigned.id, driverId: request.user.sub } });
+  return reply.send({ data: { tripId: assigned.id, status: "accepted" } });
+});
+app.post("/api/v1/trips/:tripId/start", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "DRIVER" && request.user.role !== "ADMIN") return reply.code(403).send({ error: "DRIVER_ONLY" });
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  if (!params.success) return reply.code(400).send({ error: "INVALID_TRIP_ID" });
+  const ride = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!ride) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
+  if (request.user.role !== "ADMIN" && ride.driverId !== request.user.sub) return reply.code(403).send({ error: "FORBIDDEN" });
+  const now = new Date();
+  const changed = await prisma.$transaction(async (tx) => {
+    const result = await tx.ride.updateMany({ where: { id: ride.id, status: "ACCEPTED", driverId: ride.driverId }, data: { status: "IN_PROGRESS", startedAt: now } });
+    if (result.count !== 1) return false;
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: ride.id, eventType: "trip.status_changed", payload: { tripId: ride.id, previousStatus: "accepted", status: "in_progress", occurredAt: now.toISOString() } } });
+    return true;
+  });
+  if (!changed) return reply.code(409).send({ error: "INVALID_TRIP_STATE", message: "Somente corridas aceitas podem ser iniciadas." });
+  return reply.send({ data: { tripId: ride.id, status: "in_progress", startedAt: now.toISOString() } });
+});
+
+app.post("/api/v1/trips/:tripId/complete", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "DRIVER" && request.user.role !== "ADMIN") return reply.code(403).send({ error: "DRIVER_ONLY" });
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  if (!params.success) return reply.code(400).send({ error: "INVALID_TRIP_ID" });
+  const ride = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!ride) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
+  if (request.user.role !== "ADMIN" && ride.driverId !== request.user.sub) return reply.code(403).send({ error: "FORBIDDEN" });
+  const now = new Date();
+  const finalFareCents = ride.estimatedFareCents ?? 0;
+  const changed = await prisma.$transaction(async (tx) => {
+    const result = await tx.ride.updateMany({ where: { id: ride.id, status: "IN_PROGRESS", driverId: ride.driverId }, data: { status: "COMPLETED", completedAt: now, finalFareCents } });
+    if (result.count !== 1) return false;
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: ride.id, eventType: "trip.status_changed", payload: { tripId: ride.id, previousStatus: "in_progress", status: "completed", finalFareCents, occurredAt: now.toISOString() } } });
+    return true;
+  });
+  if (!changed) return reply.code(409).send({ error: "INVALID_TRIP_STATE", message: "Somente corridas em andamento podem ser concluídas." });
+  return reply.send({ data: { tripId: ride.id, status: "completed", finalFareCents, currency: "BRL", completedAt: now.toISOString() } });
+});
+
+app.post("/api/v1/trips/:tripId/cancel", { preHandler: requireAuth }, async (request, reply) => {
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  const body = z.object({ reason: z.string().trim().max(300).optional() }).safeParse(request.body ?? {});
+  if (!params.success || !body.success) return reply.code(400).send({ error: "INVALID_CANCEL_REQUEST" });
+  const ride = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!ride) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
+  const allowedPassenger = request.user.role === "PASSENGER" && ride.passengerId === request.user.sub && ["REQUESTED", "ACCEPTED"].includes(ride.status);
+  const allowedDriver = request.user.role === "DRIVER" && ride.driverId === request.user.sub && ["ACCEPTED", "DRIVER_ARRIVING"].includes(ride.status);
+  const allowedAdmin = request.user.role === "ADMIN" && !["COMPLETED", "CANCELLED"].includes(ride.status);
+  if (!allowedPassenger && !allowedDriver && !allowedAdmin) return reply.code(403).send({ error: "CANCELLATION_NOT_ALLOWED" });
+  const now = new Date();
+  const changed = await prisma.$transaction(async (tx) => {
+    const result = await tx.ride.updateMany({ where: { id: ride.id, status: ride.status }, data: { status: "CANCELLED" } });
+    if (result.count !== 1) return false;
+    await tx.driverOffer.updateMany({ where: { rideId: ride.id, acceptedAt: null }, data: { expiresAt: now } });
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: ride.id, eventType: "trip.status_changed", payload: { tripId: ride.id, previousStatus: apiRideStatus(ride.status), status: "canceled", reason: body.data.reason ?? null, cancelledBy: request.user.sub, occurredAt: now.toISOString() } } });
+    return true;
+  });
+  if (!changed) return reply.code(409).send({ error: "TRIP_STATE_CONFLICT" });
+  return reply.send({ data: { tripId: ride.id, status: "canceled", cancelledAt: now.toISOString() } });
+});
+app.get("/api/v1/trips/:tripId", { preHandler: requireAuth }, async (request, reply) => {
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  if (!params.success) return reply.code(400).send({ error: "Identificador de corrida inválido." });
+  const ride = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!ride) return reply.code(404).send({ error: "Corrida não encontrada." });
+  if (ride.passengerId !== request.user.sub && ride.driverId !== request.user.sub && request.user.role !== "ADMIN") return reply.code(403).send({ error: "Você não tem permissão para consultar esta corrida." });
+  return reply.send({ data: { tripId: ride.id, status: apiRideStatus(ride.status), estimatedFareCents: ride.estimatedFareCents, finalFareCents: ride.finalFareCents, currency: "BRL", createdAt: ride.requestedAt.toISOString() } });
+});
+
+io.use((socket, next) => { try { const token = socket.handshake.auth?.token; if (typeof token !== "string") return next(new Error("UNAUTHENTICATED")); socket.data.user = app.jwt.verify(token) as JwtUser; next(); } catch { next(new Error("UNAUTHENTICATED")); } });
+io.on("connection", (socket) => {
+  const user = socket.data.user as JwtUser;
+  if (user.role === "DRIVER") socket.join("driver:" + user.sub);
+  socket.on("trip.subscribe", async (payload: unknown, ack?: (value: unknown) => void) => {
+    const parsed = z.object({ tripId: z.string().min(1).max(64) }).safeParse(payload);
+    if (!parsed.success) return ack?.({ ok: false, error: "INVALID_PAYLOAD" });
+    const ride = await prisma.ride.findUnique({ where: { id: parsed.data.tripId } });
+    if (!ride) return ack?.({ ok: false, error: "TRIP_NOT_FOUND" });
+    if (ride.passengerId !== user.sub && ride.driverId !== user.sub && user.role !== "ADMIN") return ack?.({ ok: false, error: "FORBIDDEN" });
+    await socket.join("trip:" + ride.id); ack?.({ ok: true, data: { tripId: ride.id, subscription: "active" } });
+  });
+  socket.on("driver.location_update", async (payload: unknown, ack?: (value: unknown) => void) => {
+    if (user.role !== "DRIVER") return ack?.({ ok: false, error: "FORBIDDEN" });
+    const parsed = z.object({ tripId: z.string().min(1).max(64), latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), sequence: z.number().int().nonnegative() }).safeParse(payload);
+    if (!parsed.success) return ack?.({ ok: false, error: "INVALID_PAYLOAD" });
+    const ride = await prisma.ride.findUnique({ where: { id: parsed.data.tripId } });
+    if (!ride || ride.driverId !== user.sub || !["ACCEPTED", "DRIVER_ARRIVING", "IN_PROGRESS"].includes(ride.status)) return ack?.({ ok: false, error: "FORBIDDEN" });
+    io.to("trip:" + ride.id).emit("trip.driver_location", { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: parsed.data });
+    ack?.({ ok: true, data: { sequence: parsed.data.sequence } });
+  });
+});
+
+async function publishOutboxBatch() {
+  await prisma.$transaction(async (tx) => {
+    const events = await tx.$queryRaw<Array<{ id: string; aggregateId: string; eventType: string; payload: Prisma.JsonValue }>>(Prisma.sql`
+      SELECT "id", "aggregateId", "eventType", "payload"
+      FROM "OutboxEvent"
+      WHERE "publishedAt" IS NULL
+      ORDER BY "createdAt" ASC
+      LIMIT 50
+      FOR UPDATE SKIP LOCKED
+    `);
+    for (const event of events) {
+      io.to("trip:" + event.aggregateId).emit(event.eventType, {
+        eventId: event.id,
+        occurredAt: new Date().toISOString(),
+        data: event.payload,
+      });
+      await tx.outboxEvent.update({
+        where: { id: event.id },
+        data: { publishedAt: new Date(), attempts: { increment: 1 }, lastError: null },
+      });
+    }
+  });
+}
+
+const outboxTimer = process.env.NODE_ENV === "test" ? undefined : setInterval(() => {
+  void publishOutboxBatch().catch((error: unknown) => app.log.error({ err: error }, "Outbox publish batch failed"));
+}, 1000);
+outboxTimer?.unref();
+
+export { app, prisma };
+
+if (process.env.NODE_ENV !== "test") {
+  try {
+    await app.listen({ port, host });
+  } catch (error) {
+    app.log.error(error);
+    await prisma.$disconnect();
+    process.exit(1);
+  }
 }
