@@ -5,6 +5,8 @@ import rateLimit from "@fastify/rate-limit";
 import { Prisma, PrismaClient, UserRole, RideStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
+import { Server as SocketIOServer } from "socket.io";
 import { autocompleteGooglePlaces, computeGoogleRoute } from "./google-maps.js";
 
 const jwtSecret = process.env.JWT_SECRET;
@@ -14,6 +16,7 @@ if (!jwtSecret || jwtSecret.length < 32) {
 
 const prisma = new PrismaClient();
 const app = Fastify({ logger: true, bodyLimit: 16_384 });
+let io: SocketIOServer;
 const port = Number(process.env.API_PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 
@@ -436,6 +439,32 @@ app.post("/api/v1/trips", { preHandler: requireAuth }, async (request, reply) =>
   }
 });
 
+app.put("/api/v1/drivers/me/availability", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "DRIVER") return reply.code(403).send({ error: "DRIVER_ONLY" });
+  const parsed = z.object({ available: z.boolean() }).safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "INVALID_AVAILABILITY" });
+  const profile = await prisma.driverProfile.findUnique({ where: { userId: request.user.sub } });
+  if (!profile || profile.approvalStatus !== "APPROVED") return reply.code(403).send({ error: "DRIVER_NOT_APPROVED" });
+  const updated = await prisma.driverProfile.update({ where: { userId: request.user.sub }, data: { isOnline: parsed.data.available } });
+  return reply.send({ data: { available: updated.isOnline } });
+});
+app.post("/api/v1/trips/:tripId/accept", { preHandler: requireAuth }, async (request, reply) => {
+  if (request.user.role !== "DRIVER") return reply.code(403).send({ error: "DRIVER_ONLY" });
+  const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
+  if (!params.success) return reply.code(400).send({ error: "INVALID_TRIP_ID" });
+  const profile = await prisma.driverProfile.findUnique({ where: { userId: request.user.sub } });
+  if (!profile || profile.approvalStatus !== "APPROVED" || !profile.isOnline) return reply.code(403).send({ error: "DRIVER_NOT_ELIGIBLE" });
+  const current = await prisma.ride.findUnique({ where: { id: params.data.tripId } });
+  if (!current) return reply.code(404).send({ error: "TRIP_NOT_FOUND" });
+  if (current.driverId === request.user.sub && current.status === "ACCEPTED") return reply.send({ data: { tripId: current.id, status: "accepted" } });
+  const result = await prisma.ride.updateMany({ where: { id: current.id, status: "REQUESTED", driverId: null }, data: { driverId: request.user.sub, status: "ACCEPTED", acceptedAt: new Date() } });
+  if (result.count !== 1) return reply.code(409).send({ error: "TRIP_ALREADY_ASSIGNED" });
+  const assigned = await prisma.ride.findUniqueOrThrow({ where: { id: current.id } });
+  const event = { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { tripId: assigned.id, previousStatus: "requested", status: "accepted", driverId: request.user.sub } };
+  io.to("trip:" + assigned.id).emit("trip.status_changed", event);
+  io.to("trip:" + assigned.id).emit("trip.driver_assigned", { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { tripId: assigned.id, driverId: request.user.sub } });
+  return reply.send({ data: { tripId: assigned.id, status: "accepted" } });
+});
 app.get("/api/v1/trips/:tripId", { preHandler: requireAuth }, async (request, reply) => {
   const params = z.object({ tripId: z.string().min(1).max(64) }).safeParse(request.params);
   if (!params.success) return reply.code(400).send({ error: "Identificador de corrida inválido." });
@@ -443,6 +472,30 @@ app.get("/api/v1/trips/:tripId", { preHandler: requireAuth }, async (request, re
   if (!ride) return reply.code(404).send({ error: "Corrida não encontrada." });
   if (ride.passengerId !== request.user.sub && ride.driverId !== request.user.sub && request.user.role !== "ADMIN") return reply.code(403).send({ error: "Você não tem permissão para consultar esta corrida." });
   return reply.send({ data: { tripId: ride.id, status: apiRideStatus(ride.status), estimatedFareCents: ride.estimatedFareCents, finalFareCents: ride.finalFareCents, currency: "BRL", createdAt: ride.requestedAt.toISOString() } });
+});
+
+io = new SocketIOServer(app.server, { path: "/realtime/socket.io", cors: { origin: process.env.CORS_ORIGIN?.split(",") ?? false } });
+io.use((socket, next) => { try { const token = socket.handshake.auth?.token; if (typeof token !== "string") return next(new Error("UNAUTHENTICATED")); socket.data.user = app.jwt.verify(token) as JwtUser; next(); } catch { next(new Error("UNAUTHENTICATED")); } });
+io.on("connection", (socket) => {
+  const user = socket.data.user as JwtUser;
+  if (user.role === "DRIVER") socket.join("driver:" + user.sub);
+  socket.on("trip.subscribe", async (payload: unknown, ack?: (value: unknown) => void) => {
+    const parsed = z.object({ tripId: z.string().min(1).max(64) }).safeParse(payload);
+    if (!parsed.success) return ack?.({ ok: false, error: "INVALID_PAYLOAD" });
+    const ride = await prisma.ride.findUnique({ where: { id: parsed.data.tripId } });
+    if (!ride) return ack?.({ ok: false, error: "TRIP_NOT_FOUND" });
+    if (ride.passengerId !== user.sub && ride.driverId !== user.sub && user.role !== "ADMIN") return ack?.({ ok: false, error: "FORBIDDEN" });
+    await socket.join("trip:" + ride.id); ack?.({ ok: true, data: { tripId: ride.id, subscription: "active" } });
+  });
+  socket.on("driver.location_update", async (payload: unknown, ack?: (value: unknown) => void) => {
+    if (user.role !== "DRIVER") return ack?.({ ok: false, error: "FORBIDDEN" });
+    const parsed = z.object({ tripId: z.string().min(1).max(64), latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), sequence: z.number().int().nonnegative() }).safeParse(payload);
+    if (!parsed.success) return ack?.({ ok: false, error: "INVALID_PAYLOAD" });
+    const ride = await prisma.ride.findUnique({ where: { id: parsed.data.tripId } });
+    if (!ride || ride.driverId !== user.sub || !["ACCEPTED", "DRIVER_ARRIVING", "IN_PROGRESS"].includes(ride.status)) return ack?.({ ok: false, error: "FORBIDDEN" });
+    io.to("trip:" + ride.id).emit("trip.driver_location", { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: parsed.data });
+    ack?.({ ok: true, data: { sequence: parsed.data.sequence } });
+  });
 });
 
 try {
