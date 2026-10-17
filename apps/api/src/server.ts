@@ -418,6 +418,10 @@ app.post("/api/v1/trips", { preHandler: requireAuth }, async (request, reply) =>
         estimatedFareCents: quote.estimatedFareCents,
       }});
     });
+    const eligibleDrivers = await prisma.driverProfile.findMany({ where: { isOnline: true, approvalStatus: "APPROVED" }, select: { userId: true } });
+    for (const driver of eligibleDrivers) {
+      io.to("driver:" + driver.userId).emit("driver.offer_created", { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { tripId: ride.id, expiresAt: new Date(Date.now() + 30_000).toISOString(), pickup: { latitude: ride.originLatitude, longitude: ride.originLongitude } } });
+    }
     return reply.code(201).send({ data: { tripId: ride.id, status: "requested", estimatedFareCents: ride.estimatedFareCents, currency: "BRL", createdAt: ride.requestedAt.toISOString() } });
   } catch (error) {
     if (error instanceof Error && ["QUOTE_NOT_FOUND", "QUOTE_EXPIRED", "QUOTE_ALREADY_USED"].includes(error.message)) {
