@@ -180,7 +180,7 @@ test("cotação → solicitação idempotente → consulta → aceite único →
     payload: { reason: "integration test" },
   });
   assert.equal(cancelResponse.statusCode, 200, cancelResponse.body);
-  assert.equal(cancelResponse.json().data.status, "cancelled");
+  assert.equal(cancelResponse.json().data.status, "canceled");
 
   const persistedEvents = await prisma.outboxEvent.findMany({ where: { aggregateType: "Ride", aggregateId: tripId } });
   assert.equal(persistedEvents.length, 3);
