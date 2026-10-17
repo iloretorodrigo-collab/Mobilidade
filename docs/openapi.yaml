@@ -313,10 +313,9 @@ paths:
       tags: [Drivers]
       operationId: acceptTrip
       summary: Aceitar oferta de corrida
-      description: Implementado com atualização condicional atômica; somente um motorista pode vencer. O motorista deve estar aprovado e online.
+      description: Implementado com oferta persistida, expiração e atualização condicional atômica; somente um motorista pode vencer. O motorista deve estar aprovado e online.
       parameters:
         - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
