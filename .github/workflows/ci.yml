@@ -35,8 +35,8 @@ jobs:
       - name: Validate OpenAPI contract
         run: npm run lint:openapi
       - run: npm run db:generate
-      - name: Prepare integration database
-        run: npx prisma db push --schema=packages/database/prisma/schema.prisma
+      - name: Apply versioned database migrations
+        run: npm run db:migrate --workspace @mobilidade/database
       - run: npm run typecheck
       - run: npm run build:api
       - name: Test quote, trip request, dispatch and WebSocket
