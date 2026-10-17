@@ -140,7 +140,7 @@ paths:
       tags: [Places]
       operationId: autocompletePlaces
       summary: Pesquisar endereços
-      description: Planejado. O backend consultará Google Maps Platform; chave privada nunca deve ser enviada ao app.
+      description: Implementado com Google Places API (New). A chave privada permanece exclusivamente no backend.
       parameters:
         - in: query
           name: input
@@ -172,7 +172,7 @@ paths:
       tags: [Places]
       operationId: estimateRoute
       summary: Estimar distância e duração de uma rota
-      description: Planejado. Distância e duração retornadas pelo provedor não garantem o tempo real de viagem.
+      description: Implementado com Google Routes API. Distância e duração retornadas pelo provedor não garantem o tempo real de viagem.
       requestBody:
         required: true
         content:
@@ -193,7 +193,7 @@ paths:
       tags: [Pricing]
       operationId: createQuote
       summary: Gerar estimativa de tarifa
-      description: MVP aproximado implementado com distância geodésica e fator configurável; ainda não usa Google Routes API.
+      description: Usa Google Routes API quando GOOGLE_MAPS_API_KEY está configurada; sem chave, mantém fallback aproximado sem paradas intermediárias.
       requestBody:
         required: true
         content:
@@ -313,7 +313,7 @@ paths:
       tags: [Drivers]
       operationId: acceptTrip
       summary: Aceitar oferta de corrida
-      description: A atribuição deve ser atômica; somente um motorista pode vencer.
+      description: Implementado com atualização condicional atômica; somente um motorista pode vencer. O motorista deve estar aprovado e online.
       parameters:
         - $ref: '#/components/parameters/TripId'
         - $ref: '#/components/parameters/IdempotencyKey'
