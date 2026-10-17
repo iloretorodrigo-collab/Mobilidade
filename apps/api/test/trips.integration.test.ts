@@ -97,13 +97,14 @@ test("cotação → solicitação idempotente → consulta → aceite único →
   assert.equal(getResponse.statusCode, 200, getResponse.body);
   assert.equal(getResponse.json().data.status, "requested");
 
-  const accept = (token: string) => app.inject({
+  const offers = await prisma.driverOffer.findMany({ where: { rideId: tripId }, orderBy: { createdAt: "asc" } });
+  assert.equal(offers.length, 2);
+  const acceptResults = await Promise.all(driverTokens.map((token, index) => app.inject({
     method: "POST",
     url: "/api/v1/trips/" + tripId + "/accept",
     headers: { authorization: "Bearer " + token, "content-type": "application/json" },
-    payload: {},
-  });
-  const acceptResults = await Promise.all(driverTokens.map(accept));
+    payload: { offerId: offers.find((offer) => offer.driverId === driverIds[index])?.id },
+  })));
   assert.equal(acceptResults.filter((response) => response.statusCode === 200).length, 1);
   assert.equal(acceptResults.filter((response) => response.statusCode === 409).length, 1);
 
