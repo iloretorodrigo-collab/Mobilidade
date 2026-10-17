@@ -1,11 +1,11 @@
 # VIAÊ — Contratos WebSocket
 
-**Status:** contrato planejado; o servidor Socket.IO ainda precisa ser implementado. Os exemplos usam dados fictícios.
+**Status:** Socket.IO foi integrado ao servidor para autenticação JWT, inscrição autorizada em sala de corrida, ofertas de motorista e atualização de localização. Mensagens, alertas de segurança, ETA e outbox ainda são planejados. Os exemplos usam dados fictícios.
 
 ## Transporte e autenticação
 
 - Transporte proposto: Socket.IO sobre HTTPS/WSS.
-- Endpoint planejado: `/realtime` no mesmo host da API.
+- Endpoint: `/realtime/socket.io` no mesmo host da API.
 - O cliente apresenta JWT válido no handshake. Nunca enviar tokens em query strings.
 - O servidor identifica o usuário, papel, aprovação do motorista e permissões antes de permitir inscrições em salas.
 - Salas privadas: `trip:{tripId}`; uma sala de ofertas por motorista autenticado; salas operacionais segmentadas por área somente para motoristas elegíveis.
