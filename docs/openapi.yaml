@@ -264,6 +264,40 @@ paths:
           description: Sem permissão para consultar esta corrida
         '404':
           description: Corrida não encontrada
+  /api/v1/trips/{tripId}/start:
+    post:
+      tags: [Trips]
+      operationId: startTrip
+      summary: Iniciar corrida aceita
+      description: Somente o motorista atribuído (ou administrador) pode iniciar uma corrida no estado accepted. A transição é atômica e registrada no outbox.
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+      responses:
+        '200':
+          description: Corrida iniciada
+        '403':
+          description: Sem permissão para iniciar a corrida
+        '404':
+          description: Corrida não encontrada
+        '409':
+          description: Corrida não está no estado accepted
+  /api/v1/trips/{tripId}/complete:
+    post:
+      tags: [Trips]
+      operationId: completeTrip
+      summary: Concluir corrida em andamento
+      description: Somente o motorista atribuído (ou administrador) pode concluir uma corrida em andamento. No MVP, a tarifa final é igual à estimativa aceita; tarifa por distância real ainda não está disponível.
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+      responses:
+        '200':
+          description: Corrida concluída com tarifa final do MVP
+        '403':
+          description: Sem permissão para concluir a corrida
+        '404':
+          description: Corrida não encontrada
+        '409':
+          description: Corrida não está em andamento
   /api/v1/trips/{tripId}/cancel:
     post:
       tags: [Trips]
@@ -271,9 +305,8 @@ paths:
       summary: Cancelar corrida
       parameters:
         - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
