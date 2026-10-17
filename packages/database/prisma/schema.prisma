@@ -122,3 +122,18 @@ model DriverOffer {
   @@index([driverId, expiresAt])
   @@index([rideId, expiresAt])
 }
+
+model OutboxEvent {
+  id            String   @id @default(cuid())
+  aggregateType String
+  aggregateId   String
+  eventType     String
+  payload       Json
+  attempts      Int      @default(0)
+  createdAt     DateTime @default(now())
+  publishedAt   DateTime?
+  lastError     String?
+
+  @@index([publishedAt, createdAt])
+  @@index([aggregateType, aggregateId, createdAt])
+}
