@@ -471,12 +471,11 @@ app.post("/api/v1/trips/:tripId/accept", { preHandler: requireAuth }, async (req
     if (result.count !== 1) return false;
     await tx.driverOffer.update({ where: { id: offer.id }, data: { acceptedAt: new Date() } });
     await tx.driverOffer.updateMany({ where: { rideId: current.id, id: { not: offer.id }, acceptedAt: null }, data: { expiresAt: new Date() } });
+    await tx.outboxEvent.create({ data: { aggregateType: "Ride", aggregateId: current.id, eventType: "trip.status_changed", payload: { tripId: current.id, previousStatus: "requested", status: "accepted", driverId: request.user.sub, occurredAt: new Date().toISOString() } } });
     return true;
   });
   if (!accepted) return reply.code(409).send({ error: "TRIP_ALREADY_ASSIGNED" });
   const assigned = await prisma.ride.findUniqueOrThrow({ where: { id: current.id } });
-  const event = { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { tripId: assigned.id, previousStatus: "requested", status: "accepted", driverId: request.user.sub } };
-  io.to("trip:" + assigned.id).emit("trip.status_changed", event);
   io.to("trip:" + assigned.id).emit("trip.driver_assigned", { eventId: randomUUID(), occurredAt: new Date().toISOString(), data: { tripId: assigned.id, driverId: request.user.sub } });
   return reply.send({ data: { tripId: assigned.id, status: "accepted" } });
 });
@@ -495,8 +494,6 @@ app.post("/api/v1/trips/:tripId/start", { preHandler: requireAuth }, async (requ
     return true;
   });
   if (!changed) return reply.code(409).send({ error: "INVALID_TRIP_STATE", message: "Somente corridas aceitas podem ser iniciadas." });
-  const event = { eventId: randomUUID(), occurredAt: now.toISOString(), data: { tripId: ride.id, previousStatus: "accepted", status: "in_progress" } };
-  io.to("trip:" + ride.id).emit("trip.status_changed", event);
   return reply.send({ data: { tripId: ride.id, status: "in_progress", startedAt: now.toISOString() } });
 });
 
@@ -516,8 +513,6 @@ app.post("/api/v1/trips/:tripId/complete", { preHandler: requireAuth }, async (r
     return true;
   });
   if (!changed) return reply.code(409).send({ error: "INVALID_TRIP_STATE", message: "Somente corridas em andamento podem ser concluídas." });
-  const event = { eventId: randomUUID(), occurredAt: now.toISOString(), data: { tripId: ride.id, previousStatus: "in_progress", status: "completed", finalFareCents } };
-  io.to("trip:" + ride.id).emit("trip.status_changed", event);
   return reply.send({ data: { tripId: ride.id, status: "completed", finalFareCents, currency: "BRL", completedAt: now.toISOString() } });
 });
 
@@ -540,8 +535,6 @@ app.post("/api/v1/trips/:tripId/cancel", { preHandler: requireAuth }, async (req
     return true;
   });
   if (!changed) return reply.code(409).send({ error: "TRIP_STATE_CONFLICT" });
-  const event = { eventId: randomUUID(), occurredAt: now.toISOString(), data: { tripId: ride.id, previousStatus: apiRideStatus(ride.status), status: "cancelled", reason: body.data.reason ?? null } };
-  io.to("trip:" + ride.id).emit("trip.status_changed", event);
   return reply.send({ data: { tripId: ride.id, status: "cancelled", cancelledAt: now.toISOString() } });
 });
 app.get("/api/v1/trips/:tripId", { preHandler: requireAuth }, async (request, reply) => {
@@ -575,6 +568,35 @@ io.on("connection", (socket) => {
     ack?.({ ok: true, data: { sequence: parsed.data.sequence } });
   });
 });
+
+async function publishOutboxBatch() {
+  await prisma.$transaction(async (tx) => {
+    const events = await tx.$queryRaw<Array<{ id: string; aggregateId: string; eventType: string; payload: Prisma.JsonValue }>>(Prisma.sql`
+      SELECT "id", "aggregateId", "eventType", "payload"
+      FROM "OutboxEvent"
+      WHERE "publishedAt" IS NULL
+      ORDER BY "createdAt" ASC
+      LIMIT 50
+      FOR UPDATE SKIP LOCKED
+    `);
+    for (const event of events) {
+      io.to("trip:" + event.aggregateId).emit(event.eventType, {
+        eventId: event.id,
+        occurredAt: new Date().toISOString(),
+        data: event.payload,
+      });
+      await tx.outboxEvent.update({
+        where: { id: event.id },
+        data: { publishedAt: new Date(), attempts: { increment: 1 }, lastError: null },
+      });
+    }
+  });
+}
+
+const outboxTimer = process.env.NODE_ENV === "test" ? undefined : setInterval(() => {
+  void publishOutboxBatch().catch((error: unknown) => app.log.error({ err: error }, "Outbox publish batch failed"));
+}, 1000);
+outboxTimer?.unref();
 
 export { app, prisma };
 
