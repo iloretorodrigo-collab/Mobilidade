@@ -365,32 +365,6 @@ paths:
           description: Oferta expirada ou corrida já atribuída
         '403':
           description: Motorista não autorizado
-  /api/v1/trips/{tripId}/start:
-    post:
-      tags: [Drivers]
-      operationId: startTrip
-      summary: Iniciar corrida
-      parameters:
-        - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '200':
-          description: Corrida iniciada
-        '409':
-          description: Transição de estado inválida
-  /api/v1/trips/{tripId}/complete:
-    post:
-      tags: [Drivers]
-      operationId: completeTrip
-      summary: Finalizar corrida
-      parameters:
-        - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '200':
-          description: Corrida finalizada
-        '409':
-          description: Transição de estado inválida
   /api/v1/payments/webhooks/mercado-pago:
     post:
       tags: [Payments]
